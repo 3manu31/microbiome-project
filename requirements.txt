@@ -1,0 +1,33 @@
+# Core data science libraries
+pandas>=2.0.0
+numpy>=1.24.0
+scipy>=1.10.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+plotly>=5.14.0
+
+# Machine learning
+scikit-learn>=1.3.0
+xgboost>=1.7.0
+imbalanced-learn>=0.10.0
+
+# Bioinformatics specific
+biopython>=1.81
+skbio>=0.5.8
+
+# Statistical analysis
+statsmodels>=0.14.0
+pingouin>=0.5.3
+
+# Jupyter and interactive analysis
+jupyter>=1.0.0
+ipywidgets>=8.0.0
+
+# Progress bars and utilities
+tqdm>=4.65.0
+requests>=2.31.0
+
+# Data downloading and processing
+wget>=3.2

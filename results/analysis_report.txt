@@ -1,0 +1,20 @@
+ADVANCED MICROBIOME ANALYSIS REPORT
+============================================================
+
+Analysis Date: August 2025
+Dataset: 200 samples, 50 taxa
+Disease distribution: {'Healthy': 120, 'IBS': 80}
+
+Feature Selection: 20 taxa selected
+
+Model Performance:
+RandomForest:
+  CV Accuracy: 0.893 ± 0.023
+  Test Accuracy: 0.900
+  AUC Score: 0.935
+
+Statistical Analysis:
+Significant taxa (FDR < 0.05): 10
+Most significant taxa: Enterobacteriaceae_sp
+Log2 fold change: nan
+Adjusted p-value: 3.24e-09

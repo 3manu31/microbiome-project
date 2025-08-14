@@ -1,0 +1,17 @@
+BASIC MICROBIOME ANALYSIS SUMMARY
+==================================================
+
+Analysis Date: August 2025
+Total samples: 50
+Total taxa: 20
+
+Shannon Diversity Statistics:
+Mean: 2.700
+Std:  0.056
+Min:  2.620
+Max:  2.847
+
+Taxa Abundance Statistics:
+Most abundant taxa: Eubacterium
+Highest mean abundance: 0.1387
+Lowest mean abundance: 0.0071
