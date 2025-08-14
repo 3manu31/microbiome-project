@@ -2,7 +2,7 @@
 
 A comprehensive Python-based analysis workflow for gut microbiota data, featuring both basic exploratory analysis and advanced machine learning approaches for disease prediction.
 
-## 🔬 Project Overview
+## Project Overview
 
 ### Part 1: Basic Analysis
 - **Goal**: Quick exploration of gut microbiota diversity
@@ -16,7 +16,7 @@ A comprehensive Python-based analysis workflow for gut microbiota data, featurin
 - **Skills**: ML classification, statistical analysis, feature selection
 - **Outputs**: Trained models, statistical comparisons, publication-ready figures
 
-## 🚀 Quick Start
+## Quick Start
 
 1. **Install dependencies**:
    ```bash
@@ -33,7 +33,7 @@ A comprehensive Python-based analysis workflow for gut microbiota data, featurin
    python advanced_analysis/ml_prediction.py
    ```
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 microbiome-project/
@@ -54,7 +54,7 @@ microbiome-project/
 └── requirements.txt
 ```
 
-## 📊 Datasets
+## Datasets
 
 ### Basic Analysis
 - **Source**: Human Microbiome Project (HMP)
@@ -68,7 +68,7 @@ microbiome-project/
 - **Samples**: IBS vs. healthy controls
 - **Format**: OTU/ASV tables with clinical metadata
 
-## 🛠 Dependencies
+## Dependencies
 
 - **Core**: pandas, numpy, scipy
 - **Visualization**: matplotlib, seaborn, plotly
@@ -76,7 +76,7 @@ microbiome-project/
 - **Bioinformatics**: biopython, skbio
 - **Statistics**: statsmodels, pingouin
 
-## 📈 Expected Outputs
+## Expected Outputs
 
 ### Basic Analysis
 - Shannon diversity index calculations
@@ -91,7 +91,7 @@ microbiome-project/
 - Statistical comparison of taxa between groups
 - Publication-quality figures (300 DPI PNG)
 
-## 🔍 Analysis Workflow
+## Analysis Workflow
 
 1. **Data Loading**: Import and validate microbiome datasets
 2. **Quality Control**: Filter low-abundance taxa, handle missing data
@@ -101,20 +101,21 @@ microbiome-project/
 6. **Machine Learning**: Train classifiers for disease prediction
 7. **Visualization**: Generate publication-ready plots
 
-## 📚 References
+## References
 
 - Human Microbiome Project: https://www.hmpdacc.org/
 - MGnify Database: https://www.ebi.ac.uk/metagenomics/
 - scikit-bio Documentation: http://scikit-bio.org/
 
-## 🤝 Contributing
+## Contributing
 
 Feel free to submit issues and enhancement requests!
 
-## 📄 License
+## License
 
 This project is open source and available under the MIT License.
-## 📑 Attribution & Citation
+
+## Attribution & Citation
 
 If you use this code or workflow in your research, publication, or project, please credit as follows:
 
@@ -122,12 +123,14 @@ If you use this code or workflow in your research, publication, or project, plea
 
 **Suggested citation:**
 
-Emmanuel Gialitakis, microbiome-project, GitHub, 2025. Available at: https://github.com/3manu31/microbiome-project
+Emmanuel Gialitakis, microbiome-project, GitHub, 2025. Available at: [https://github.com/3manu31/microbiome-project](https://github.com/3manu31/microbiome-project)
+
 
 **Attribution requirement (MIT License):**
+
 - Please retain the copyright notice and license text in any copies or substantial portions of the code.
 - In publications, you may cite the repository and/or mention the author in the methods, acknowledgments, or bibliography.
 
 Example for publications:
 Example for publications:
-> "Analysis performed using the microbiome-project (Emmanuel Gialitakis, GitHub, 2025, https://github.com/3manu31/microbiome-project)."
+> "Analysis performed using the microbiome-project (Emmanuel Gialitakis, GitHub, 2025, [https://github.com/3manu31/microbiome-project](https://github.com/3manu31/microbiome-project))."
