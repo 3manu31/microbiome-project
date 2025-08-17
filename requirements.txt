@@ -1,0 +1,4 @@
+streamlit
+biom-format
+pandas
+matplotlib
