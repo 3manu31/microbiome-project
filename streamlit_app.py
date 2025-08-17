@@ -86,11 +86,23 @@ except Exception as e:
     st.stop()
 
 # --- Merge abundance and metadata ---
+
+# Limit the number of samples and features for large files
+MAX_SAMPLES = 100
+MAX_FEATURES = 100
+
 if metadata is None or table is None:
     st.warning("Please upload both a metadata file and a BIOM file to proceed.")
     st.stop()
 try:
     abundance_df = table.to_dataframe(dense=True).T  # Samples as rows
+    # Limit samples and features for performance
+    if abundance_df.shape[0] > MAX_SAMPLES:
+        abundance_df = abundance_df.iloc[:MAX_SAMPLES, :]
+    if abundance_df.shape[1] > MAX_FEATURES:
+        abundance_df = abundance_df.iloc[:, :MAX_FEATURES]
+    if metadata.shape[0] > MAX_SAMPLES:
+        metadata = metadata.iloc[:MAX_SAMPLES, :]
     merged = abundance_df.merge(metadata, left_index=True, right_on='sample_id')
 except Exception as e:
     st.error(f"Error merging abundance and metadata: {e}. Please check that sample IDs match.")
