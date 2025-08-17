@@ -8,8 +8,10 @@ This app lets users select a grouping column (healthy, mental illness, sex, samp
 import streamlit as st
 import pandas as pd
 from biom import load_table
+from biom.table import Table
 import matplotlib.pyplot as plt
 import os
+import tempfile
 
 st.title("Microbiome Top Microbes Dashboard")
 
@@ -37,12 +39,31 @@ except Exception as e:
     st.stop()
 
 # --- Load abundance data from .biom file ---
+
+def load_biom_file(uploaded_biom):
+    try:
+        content = uploaded_biom.read()
+        # Try loading as JSON BIOM
+        try:
+            import json
+            table = Table.from_json(json.loads(content.decode('utf-8')))
+        except Exception:
+            # If not JSON, save to temp file and load as HDF5
+            with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                tmp.write(content)
+                tmp.flush()
+                table = load_table(tmp.name)
+        return table
+    except Exception as e:
+        st.error(f"Error loading biom file: {e}")
+        st.stop()
+
 try:
     if uploaded_biom is not None:
         if hasattr(uploaded_biom, 'size') and uploaded_biom.size > 100 * 1024 * 1024:
             st.error("Uploaded BIOM file is too large. Please upload a file smaller than 100MB.")
             st.stop()
-        table = load_table(uploaded_biom)
+        table = load_biom_file(uploaded_biom)
     else:
         table = None
 except Exception as e:
