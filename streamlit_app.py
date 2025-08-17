@@ -119,6 +119,35 @@ group_options = [
 group_col_label = st.selectbox("Select grouping column:", [label for _, label in group_options])
 group_col = next(code for code, label in group_options if label == group_col_label)
 group_label = group_col_label
+
+# Get all unique group values for the selected column
+
+import time
+
+group_values = merged[group_col].dropna().unique().tolist()
+default_selected = group_values.copy()
+
+# Debounce logic: store last selection and time in session_state
+if 'last_selected_groups' not in st.session_state:
+    st.session_state['last_selected_groups'] = default_selected
+if 'last_toggle_time' not in st.session_state:
+    st.session_state['last_toggle_time'] = time.time()
+
+selected_groups = st.multiselect(
+    f"Show {group_label} options in grouped bar chart:",
+    options=group_values,
+    default=st.session_state['last_selected_groups'],
+    help="Toggle which groups to display in the grouped bar chart."
+)
+
+if selected_groups != st.session_state['last_selected_groups']:
+    now = time.time()
+    # Only update if 3 seconds have passed since last toggle
+    if now - st.session_state['last_toggle_time'] < 3.0:
+        st.warning("Please wait 3 seconds between toggles to avoid resource overload.")
+    else:
+        st.session_state['last_selected_groups'] = selected_groups
+        st.session_state['last_toggle_time'] = now
 top_n = st.slider("Select number of top microbes:", min_value=5, max_value=15, value=10, step=1)
 
 # --- Compute top microbes per group ---
@@ -166,15 +195,20 @@ id_mapping_df = pd.DataFrame({
 
 
 # Grouped Bar Chart: Microbe Abundance Across Groups (always at top)
+
+# Filter comparison_df columns based on selected groups (keep 'All' column always)
+filtered_columns = [col for col in comparison_df.columns if col in selected_groups or col == 'All']
+filtered_comparison_df = comparison_df[filtered_columns]
+
 st.header(f"Grouped Bar Chart: Microbe Abundance Across {group_label}s")
-fig3, ax3 = plt.subplots(figsize=(max(8, len(comparison_df.index)*0.5), 6))
-bar_width = 0.8 / len(comparison_df.columns)
-indices = range(len(comparison_df.index))
-for i, group in enumerate(comparison_df.columns):
+fig3, ax3 = plt.subplots(figsize=(max(8, len(filtered_comparison_df.index)*0.5), 6))
+bar_width = 0.8 / len(filtered_comparison_df.columns)
+indices = range(len(filtered_comparison_df.index))
+for i, group in enumerate(filtered_comparison_df.columns):
     color = 'red' if group == 'All' else None
-    ax3.bar([x + i*bar_width for x in indices], comparison_df[group], width=bar_width, label=group, color=color)
-ax3.set_xticks([x + bar_width*(len(comparison_df.columns)/2-0.5) for x in indices])
-ax3.set_xticklabels(comparison_df.index, rotation=90)
+    ax3.bar([x + i*bar_width for x in indices], filtered_comparison_df[group], width=bar_width, label=group, color=color)
+ax3.set_xticks([x + bar_width*(len(filtered_comparison_df.columns)/2-0.5) for x in indices])
+ax3.set_xticklabels(filtered_comparison_df.index, rotation=90)
 ax3.set_ylabel('Mean Abundance')
 ax3.set_xlabel('Microbe (ID)')
 ax3.legend()
