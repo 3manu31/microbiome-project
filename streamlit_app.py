@@ -21,13 +21,13 @@ uploaded_biom = st.sidebar.file_uploader("Upload biom file (.biom)", type=["biom
 # --- Load metadata ---
 try:
     if uploaded_metadata:
-        metadata = pd.read_csv(uploaded_metadata, sep='\t' if uploaded_metadata.name.endswith('.txt') else ',')
+        metadata = pd.read_csv(uploaded_metadata, sep='\t' if uploaded_metadata.name.endswith('.txt') else ',', low_memory=False)
     else:
         metadata_path = 'metadata.txt'
         if not os.path.exists(metadata_path):
             st.error("Metadata file not found. Please upload a metadata file.")
             st.stop()
-        metadata = pd.read_csv(metadata_path, sep='\t')
+        metadata = pd.read_csv(metadata_path, sep='\t', low_memory=False)
 except Exception as e:
     st.error(f"Error loading metadata: {e}")
     st.stop()
