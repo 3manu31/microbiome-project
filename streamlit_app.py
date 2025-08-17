@@ -21,7 +21,7 @@ uploaded_biom = st.sidebar.file_uploader("Upload biom file (.biom)", type=["biom
 # --- Load metadata ---
 try:
     if uploaded_metadata is not None:
-        if uploaded_metadata.size > 100 * 1024 * 1024:
+        if hasattr(uploaded_metadata, 'size') and uploaded_metadata.size > 100 * 1024 * 1024:
             st.error("Uploaded metadata file is too large. Please upload a file smaller than 100MB.")
             st.stop()
         metadata = pd.read_csv(
@@ -31,11 +31,7 @@ try:
             encoding='utf-8'
         )
     else:
-        metadata_path = 'metadata.txt'
-        if not os.path.exists(metadata_path):
-            st.error("Metadata file not found. Please upload a metadata file.")
-            st.stop()
-        metadata = pd.read_csv(metadata_path, sep='\t', low_memory=False, encoding='utf-8')
+        metadata = None
 except Exception as e:
     st.error(f"Error loading metadata: {e}")
     st.stop()
@@ -43,23 +39,22 @@ except Exception as e:
 # --- Load abundance data from .biom file ---
 try:
     if uploaded_biom is not None:
-        if uploaded_biom.size > 100 * 1024 * 1024:
+        if hasattr(uploaded_biom, 'size') and uploaded_biom.size > 100 * 1024 * 1024:
             st.error("Uploaded BIOM file is too large. Please upload a file smaller than 100MB.")
             st.stop()
         table = load_table(uploaded_biom)
     else:
-        biom_path = 'deblur_125nt_no_blooms.biom'
-        if not os.path.exists(biom_path):
-            st.error("BIOM file not found. Please upload a biom file.")
-            st.stop()
-        table = load_table(biom_path)
-    abundance_df = table.to_dataframe(dense=True).T  # Samples as rows
+        table = None
 except Exception as e:
     st.error(f"Error loading biom file: {e}")
     st.stop()
 
 # --- Merge abundance and metadata ---
+if metadata is None or table is None:
+    st.warning("Please upload both a metadata file and a BIOM file to proceed.")
+    st.stop()
 try:
+    abundance_df = table.to_dataframe(dense=True).T  # Samples as rows
     merged = abundance_df.merge(metadata, left_index=True, right_on='sample_id')
 except Exception as e:
     st.error(f"Error merging abundance and metadata: {e}. Please check that sample IDs match.")
