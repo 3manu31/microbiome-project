@@ -33,7 +33,11 @@ try:
             encoding='utf-8'
         )
     else:
-        metadata = None
+        # Load demo metadata file
+        if not os.path.exists('metadata.txt'):
+            st.error("Demo metadata file not found in repo. Please upload a metadata file.")
+            st.stop()
+        metadata = pd.read_csv('metadata.txt', sep='\t', low_memory=False, encoding='utf-8')
 except Exception as e:
     st.error(f"Error loading metadata: {e}")
     st.stop()
@@ -65,7 +69,18 @@ try:
             st.stop()
         table = load_biom_file(uploaded_biom)
     else:
-        table = None
+        # Load demo BIOM file
+        if not os.path.exists('deblur_125nt_no_blooms.biom'):
+            st.error("Demo BIOM file not found in repo. Please upload a BIOM file.")
+            st.stop()
+        with open('deblur_125nt_no_blooms.biom', 'rb') as demo_biom:
+            class DummyUpload:
+                def __init__(self, content):
+                    self.content = content
+                def read(self):
+                    return self.content
+            demo_biom_file = DummyUpload(demo_biom.read())
+            table = load_biom_file(demo_biom_file)
 except Exception as e:
     st.error(f"Error loading biom file: {e}")
     st.stop()
