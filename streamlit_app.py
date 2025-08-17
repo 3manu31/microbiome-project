@@ -33,11 +33,11 @@ try:
             encoding='utf-8'
         )
     else:
-        # Load demo metadata file
-        if not os.path.exists('metadata.txt'):
-            st.error("Demo metadata file not found in repo. Please upload a metadata file.")
+        # Load distilled demo metadata file
+        if not os.path.exists('metadata_demo.txt'):
+            st.error("Demo metadata_demo.txt file not found in repo. Please upload a metadata file.")
             st.stop()
-        metadata = pd.read_csv('metadata.txt', sep='\t', low_memory=False, encoding='utf-8')
+        metadata = pd.read_csv('metadata_demo.txt', sep='\t', low_memory=False, encoding='utf-8')
 except Exception as e:
     st.error(f"Error loading metadata: {e}")
     st.stop()
@@ -87,38 +87,38 @@ except Exception as e:
 
 # --- Merge abundance and metadata ---
 
-# Limit the number of samples and features for large files
-MAX_SAMPLES = 100
-MAX_FEATURES = 100
+
+# Only limit samples/features for demo data
+is_demo = (
+    uploaded_metadata is None and uploaded_biom is None
+)
+MAX_FEATURES = 100 if is_demo else None
 
 if metadata is None or table is None:
     st.warning("Please upload both a metadata file and a BIOM file to proceed.")
     st.stop()
 try:
     abundance_df = table.to_dataframe(dense=True).T  # Samples as rows
-    # Limit samples and features for performance
-    if abundance_df.shape[0] > MAX_SAMPLES:
-        abundance_df = abundance_df.iloc[:MAX_SAMPLES, :]
-    if abundance_df.shape[1] > MAX_FEATURES:
-        abundance_df = abundance_df.iloc[:, :MAX_FEATURES]
-    if metadata.shape[0] > MAX_SAMPLES:
-        metadata = metadata.iloc[:MAX_SAMPLES, :]
+    # Limit features for demo data only
+    if is_demo:
+        if MAX_FEATURES and abundance_df.shape[1] > MAX_FEATURES:
+            abundance_df = abundance_df.iloc[:, :MAX_FEATURES]
     merged = abundance_df.merge(metadata, left_index=True, right_on='sample_id')
 except Exception as e:
     st.error(f"Error merging abundance and metadata: {e}. Please check that sample IDs match.")
     st.stop()
 
 # --- Select grouping column and top N ---
-group_options = ['subset_healthy', 'mental_illness', 'sex', 'sample_type', 'asd']
-group_labels = {
-    'subset_healthy': 'Subset Healthy',
-    'mental_illness': 'Mental Illness',
-    'sex': 'Sex',
-    'sample_type': 'Sample Type',
-    'asd': 'Autism Spectrum Disorder (ASD)'
-}
-group_col = st.selectbox("Select grouping column:", group_options)
-group_label = group_labels.get(group_col, group_col)
+group_options = [
+    ('age_cat', 'Age Category'),
+    ('mental_illness', 'Mental Illness'),
+    ('sex', 'Sex'),
+    ('sample_type', 'Sample Type'),
+    ('asd', 'Autism Spectrum Disorder (ASD)')
+]
+group_col_label = st.selectbox("Select grouping column:", [label for _, label in group_options])
+group_col = next(code for code, label in group_options if label == group_col_label)
+group_label = group_col_label
 top_n = st.slider("Select number of top microbes:", min_value=5, max_value=15, value=10, step=1)
 
 # --- Compute top microbes per group ---
@@ -154,10 +154,33 @@ comparison_data['All'] = overall_mean
 comparison_df = pd.DataFrame(comparison_data)
 
 # --- Add microbe numbers to index for display (ID only for less crowding) ---
+
+# Add microbe ID mapping table to the dashboard
 comparison_df.index = [microbe_numbers[microbe] for microbe in comparison_df.index]
+id_mapping_df = pd.DataFrame({
+    'Microbe ID': [microbe_numbers[microbe] for microbe in all_top_microbes],
+    'Sequence': [microbe for microbe in all_top_microbes]
+})
 
 # --- Visualize results ---
 
+
+# Grouped Bar Chart: Microbe Abundance Across Groups (always at top)
+st.header(f"Grouped Bar Chart: Microbe Abundance Across {group_label}s")
+fig3, ax3 = plt.subplots(figsize=(max(8, len(comparison_df.index)*0.5), 6))
+bar_width = 0.8 / len(comparison_df.columns)
+indices = range(len(comparison_df.index))
+for i, group in enumerate(comparison_df.columns):
+    color = 'red' if group == 'All' else None
+    ax3.bar([x + i*bar_width for x in indices], comparison_df[group], width=bar_width, label=group, color=color)
+ax3.set_xticks([x + bar_width*(len(comparison_df.columns)/2-0.5) for x in indices])
+ax3.set_xticklabels(comparison_df.index, rotation=90)
+ax3.set_ylabel('Mean Abundance')
+ax3.set_xlabel('Microbe (ID)')
+ax3.legend()
+st.pyplot(fig3)
+
+# Per-group bar charts
 st.header(f"Top {top_n} Microbes per {group_label}")
 for group, microbes in top_microbes.items():
     st.subheader(f"{group_label if group_col == group else group}")
@@ -172,22 +195,12 @@ for group, microbes in top_microbes.items():
     st.pyplot(fig)
     st.write(microbes)
 
+# Microbe ID mapping table
+st.header("Microbe ID Mapping Table")
+st.dataframe(id_mapping_df, use_container_width=True, hide_index=True)
+
+# Comparison table
 st.header(f"Comparison Table Across {group_label}s")
 st.dataframe(comparison_df)
-
-
-st.header(f"Grouped Bar Chart: Microbe Abundance Across {group_label}s")
-fig3, ax3 = plt.subplots(figsize=(max(8, len(comparison_df.index)*0.5), 6))
-bar_width = 0.8 / len(comparison_df.columns)
-indices = range(len(comparison_df.index))
-for i, group in enumerate(comparison_df.columns):
-    color = 'red' if group == 'All' else None
-    ax3.bar([x + i*bar_width for x in indices], comparison_df[group], width=bar_width, label=group, color=color)
-ax3.set_xticks([x + bar_width*(len(comparison_df.columns)/2-0.5) for x in indices])
-ax3.set_xticklabels(comparison_df.index, rotation=90)
-ax3.set_ylabel('Mean Abundance')
-ax3.set_xlabel('Microbe (ID)')
-ax3.legend()
-st.pyplot(fig3)
 
 st.info("Upload your own files or change grouping column and top N for different comparisons.")
