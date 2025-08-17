@@ -20,21 +20,32 @@ uploaded_biom = st.sidebar.file_uploader("Upload biom file (.biom)", type=["biom
 
 # --- Load metadata ---
 try:
-    if uploaded_metadata:
-        metadata = pd.read_csv(uploaded_metadata, sep='\t' if uploaded_metadata.name.endswith('.txt') else ',', low_memory=False)
+    if uploaded_metadata is not None:
+        if uploaded_metadata.size > 100 * 1024 * 1024:
+            st.error("Uploaded metadata file is too large. Please upload a file smaller than 100MB.")
+            st.stop()
+        metadata = pd.read_csv(
+            uploaded_metadata,
+            sep='\t' if uploaded_metadata.name.endswith('.txt') else ',',
+            low_memory=False,
+            encoding='utf-8'
+        )
     else:
         metadata_path = 'metadata.txt'
         if not os.path.exists(metadata_path):
             st.error("Metadata file not found. Please upload a metadata file.")
             st.stop()
-        metadata = pd.read_csv(metadata_path, sep='\t', low_memory=False)
+        metadata = pd.read_csv(metadata_path, sep='\t', low_memory=False, encoding='utf-8')
 except Exception as e:
     st.error(f"Error loading metadata: {e}")
     st.stop()
 
 # --- Load abundance data from .biom file ---
 try:
-    if uploaded_biom:
+    if uploaded_biom is not None:
+        if uploaded_biom.size > 100 * 1024 * 1024:
+            st.error("Uploaded BIOM file is too large. Please upload a file smaller than 100MB.")
+            st.stop()
         table = load_table(uploaded_biom)
     else:
         biom_path = 'deblur_125nt_no_blooms.biom'
