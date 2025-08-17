@@ -117,6 +117,12 @@ group_options = [
     ('asd', 'Autism Spectrum Disorder (ASD)')
 ]
 group_col_label = st.selectbox("Select grouping column:", [label for _, label in group_options])
+show_loading = False
+if 'last_group_col_label' not in st.session_state:
+    st.session_state['last_group_col_label'] = group_col_label
+if group_col_label != st.session_state['last_group_col_label']:
+    show_loading = True
+    st.session_state['last_group_col_label'] = group_col_label
 group_col = next(code for code, label in group_options if label == group_col_label)
 group_label = group_col_label
 
@@ -140,14 +146,18 @@ selected_groups = st.multiselect(
     help="Toggle which groups to display in the grouped bar chart."
 )
 
+now = time.time()
 if selected_groups != st.session_state['last_selected_groups']:
-    now = time.time()
     # Only update if 3 seconds have passed since last toggle
     if now - st.session_state['last_toggle_time'] < 3.0:
         st.warning("Please wait 3 seconds between toggles to avoid resource overload.")
     else:
+        show_loading = True
         st.session_state['last_selected_groups'] = selected_groups
         st.session_state['last_toggle_time'] = now
+
+if show_loading:
+    st.info("Do not interact with the screen while content is loading...")
 top_n = st.slider("Select number of top microbes:", min_value=5, max_value=15, value=10, step=1)
 
 # --- Compute top microbes per group ---
