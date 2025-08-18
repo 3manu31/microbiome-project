@@ -91,11 +91,20 @@ try:
             st.stop()
         abundance_df = load_abundance_df(uploaded_biom)
     else:
-        # Load demo CSV file for demo mode
-        if not os.path.exists('demo_biom.csv'):
-            st.error("Demo CSV file not found in repo. Please upload a BIOM file and convert it to CSV.")
+        # Load demo Feather file for demo mode (with error handling and sampling)
+        try:
+            if not os.path.exists('demo_biom.feather'):
+                st.error("Demo Feather file not found in repo. Please upload a BIOM file and convert it to Feather format.")
+                st.stop()
+            df = pd.read_feather('demo_biom.feather')
+            if 'index' in df.columns:
+                df = df.set_index('index')
+            # Sample first 100 rows and 100 columns for resource efficiency
+            abundance_df = df.iloc[:100, :100]
+            st.info(f"Loaded demo Feather file with shape: {abundance_df.shape}")
+        except Exception as e:
+            st.error(f"Error loading demo Feather file: {e}")
             st.stop()
-        abundance_df = pd.read_csv('demo_biom.csv', index_col=0)
 except Exception as e:
     st.error(f"Error loading biom file: {e}")
     st.stop()
