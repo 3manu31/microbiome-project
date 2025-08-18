@@ -230,33 +230,52 @@ def update_comparison_table_with_codes(comparison_df, microbe_numbers):
 
 comparison_df = update_comparison_table_with_codes(comparison_df, microbe_numbers)
 
-# --- Visualize grouped bar chart using cached minimal data ---
+# --- Chart rendering cache ---
+chart_cache = {}
+
+# --- Enhanced Grouped Bar Chart with caching ---
+def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
+    cache_key = (group_label, tuple(sorted(selected_groups)), tuple(comparison_df.index))
+    if cache_key in chart_cache:
+        st.pyplot(chart_cache[cache_key])
+    else:
+        fig, ax = plt.subplots(figsize=(max(8, len(comparison_df.index)*0.5), 6))
+        comparison_df.plot(kind='bar', ax=ax, width=0.8)
+        ax.set_ylabel('Mean Abundance')
+        ax.set_xlabel('Microbe')
+        ax.set_title(f"Comparison Across {group_label}s")
+        ax.legend(title=group_label, bbox_to_anchor=(1.05, 1), loc='upper left')
+        st.pyplot(fig)
+        chart_cache[cache_key] = fig
+        plt.close(fig)
+
 st.header(f"Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s")
 if not comparison_df.empty:
-    fig, ax = plt.subplots(figsize=(max(8, len(comparison_df.index)*0.5), 6))
-    comparison_df.plot(kind='bar', ax=ax, width=0.8)
-    ax.set_ylabel('Mean Abundance')
-    ax.set_xlabel('Microbe')
-    ax.set_title(f"Comparison Across {group_label}s")
-    ax.legend(title=group_label, bbox_to_anchor=(1.05, 1), loc='upper left')
-    st.pyplot(fig)
-    plt.close(fig)
+    render_grouped_bar_chart(comparison_df, group_label, selected_groups)
 else:
     st.warning("No data available for the selected groups.")
 
-# Per-group bar charts
+# --- Per-group bar charts with caching ---
+def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers):
+    cache_key = (group_label, group, tuple(microbes.index))
+    if cache_key in chart_cache:
+        st.pyplot(chart_cache[cache_key])
+    else:
+        top_ids = [microbe_numbers.get(microbe, microbe) for microbe in microbes.index]
+        fig, ax = plt.subplots()
+        microbes.index = top_ids
+        microbes.plot(kind='bar', ax=ax, color='skyblue')
+        ax.set_ylabel('Mean Abundance')
+        ax.set_xlabel('Microbe (ID)')
+        ax.set_title(f"{group}")
+        st.pyplot(fig)
+        chart_cache[cache_key] = fig
+        plt.close(fig)
+
 st.header(f"Top {top_n} Microbes per {group_label}")
 for group, microbes in top_microbes.items():
     st.subheader(f"{group_label if group_col == group else group}")
-    # Only show top N for this group
-    top_ids = [microbe_numbers[microbe] for microbe in microbes.index]
-    fig, ax = plt.subplots()
-    microbes.index = top_ids
-    microbes.plot(kind='bar', ax=ax, color='skyblue')
-    ax.set_ylabel('Mean Abundance')
-    ax.set_xlabel('Microbe (ID)')
-    ax.set_title(f"{group}")
-    st.pyplot(fig)
+    render_single_group_bar_chart(microbes, group, group_label, microbe_numbers)
     st.write(microbes)
 
 # Microbe ID mapping table
