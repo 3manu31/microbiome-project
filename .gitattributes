@@ -1,2 +1,1 @@
 demo_biom.csv filter=lfs diff=lfs merge=lfs -text
-demo_biom.biom filter=lfs diff=lfs merge=lfs -text

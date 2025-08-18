@@ -13,11 +13,63 @@ from biom.table import Table
 import matplotlib.pyplot as plt
 import os
 import tempfile
-import os
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
-from google.auth.transport.requests import Request
+from googleapiclient.http import MediaIoBaseUpload
+
+SCOPES = ['https://www.googleapis.com/auth/drive.file']
+
+# Helper to authenticate user with Google Drive
+
+def authenticate_google_drive():
+    import json, tempfile
+    # Write OAuth client secrets to a temp file
+    client_secrets = st.secrets["GOOGLE_OAUTH"]
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.json')
+    tmp.write(json.dumps({"web": dict(client_secrets)}).encode('utf-8'))
+    tmp.flush()
+    flow = InstalledAppFlow.from_client_secrets_file(tmp.name, SCOPES)
+    creds = flow.run_local_server(port=0)
+    return creds
+
+# Helper to upload chart image to Google Drive
+def upload_chart_to_drive(chart_key, fig, creds, folder_id=None):
+    drive_service = build('drive', 'v3', credentials=creds)
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    file_metadata = {
+        'name': f'{chart_key}.png',
+        'mimeType': 'image/png'
+    }
+    if folder_id:
+        file_metadata['parents'] = [folder_id]
+    media = MediaIoBaseUpload(buf, mimetype='image/png')
+    file = drive_service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields='id'
+    ).execute()
+    return file.get('id')
+
+# Helper to download chart image from Google Drive
+def download_chart_from_drive(chart_key, creds, folder_id=None):
+    drive_service = build('drive', 'v3', credentials=creds)
+    query = f"name='{chart_key}.png' and mimeType='image/png'"
+    if folder_id:
+        query += f" and '{folder_id}' in parents"
+    results = drive_service.files().list(q=query, fields="files(id, name)").execute()
+    items = results.get('files', [])
+    if not items:
+        return None
+    file_id = items[0]['id']
+    request = drive_service.files().get_media(fileId=file_id)
+    buf = io.BytesIO()
+    downloader = drive_service._http.request(request.uri)
+    buf.write(downloader[1])
+    buf.seek(0)
+    return buf
 
 # Detect Streamlit Cloud environment
 is_cloud = os.environ.get("STREAMLIT_SERVER_HEADLESS", "false").lower() == "true"
@@ -65,37 +117,6 @@ try:
 except Exception as e:
     st.error(f"Error loading metadata: {e}")
     st.stop()
-
-# --- Google Drive API Authentication ---
-CLIENT_SECRET_FILE = "client_secret_130993493000-7dl3q2s9lhiq1pp42psnha87vpnfaif0.apps.googleusercontent.com.json"
-SCOPES = ['https://www.googleapis.com/auth/drive.file']
-
-def authenticate_google_drive():
-    creds = None
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
-            creds = flow.run_local_server(port=8501)
-        with open('token.json', 'w') as token:
-            token.write(creds.to_json())
-    return creds
-
-st.sidebar.header("Google Drive Integration")
-if st.sidebar.button("Authenticate with Google Drive"):
-    creds = authenticate_google_drive()
-    drive_service = build('drive', 'v3', credentials=creds)
-    results = drive_service.files().list(pageSize=10, fields="files(id, name)").execute()
-    items = results.get('files', [])
-    if not items:
-        st.sidebar.write("No files found in Google Drive.")
-    else:
-        st.sidebar.write("Files in Google Drive:")
-        for item in items:
-            st.sidebar.write(f"{item['name']} ({item['id']})")
 
 # --- Load abundance data from .biom file ---
 
@@ -266,51 +287,132 @@ def update_comparison_table_with_codes(comparison_df, microbe_numbers):
 comparison_df = update_comparison_table_with_codes(comparison_df, microbe_numbers)
 
 # --- Chart rendering cache ---
-chart_cache = {}
+import io
+if 'chart_cache' not in st.session_state:
+    st.session_state['chart_cache'] = {}
+chart_cache = st.session_state['chart_cache']
 
-# --- Enhanced Grouped Bar Chart with caching ---
-def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
+FOLDER_ID = "1n-HriVBAo3qEVc5NMiO4zUB9HY3QTffA"
+
+# Helper to upload chart image to Google Drive
+def upload_chart_to_drive(chart_key, fig, creds, folder_id=None):
+    drive_service = build('drive', 'v3', credentials=creds)
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    file_metadata = {
+        'name': f'{chart_key}.png',
+        'mimeType': 'image/png'
+    }
+    if folder_id:
+        file_metadata['parents'] = [folder_id]
+    media = MediaIoBaseUpload(buf, mimetype='image/png')
+    file = drive_service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields='id'
+    ).execute()
+    return file.get('id')
+
+# Helper to download chart image from Google Drive
+def download_chart_from_drive(chart_key, creds, folder_id=None):
+    drive_service = build('drive', 'v3', credentials=creds)
+    query = f"name='{chart_key}.png' and mimeType='image/png'"
+    if folder_id:
+        query += f" and '{folder_id}' in parents"
+    results = drive_service.files().list(q=query, fields="files(id, name)").execute()
+    items = results.get('files', [])
+    if not items:
+        return None
+    file_id = items[0]['id']
+    request = drive_service.files().get_media(fileId=file_id)
+    buf = io.BytesIO()
+    downloader = drive_service._http.request(request.uri)
+    buf.write(downloader[1])
+    buf.seek(0)
+    return buf
+
+# Enhanced Grouped Bar Chart with Drive cache
+def render_grouped_bar_chart(comparison_df, group_label, selected_groups, creds=None, folder_id=None):
     cache_key = (group_label, tuple(sorted(selected_groups)), tuple(comparison_df.index))
+    chart_key = f"grouped_{group_label}_{'_'.join(map(str, sorted(selected_groups)))}_{'_'.join(map(str, comparison_df.index))}"
+    # Check in-app cache
     if cache_key in chart_cache:
-        st.pyplot(chart_cache[cache_key])
-    else:
-        fig, ax = plt.subplots(figsize=(max(8, len(comparison_df.index)*0.5), 6))
-        comparison_df.plot(kind='bar', ax=ax, width=0.8)
-        ax.set_ylabel('Mean Abundance')
-        ax.set_xlabel('Microbe')
-        ax.set_title(f"Comparison Across {group_label}s")
-        ax.legend(title=group_label, bbox_to_anchor=(1.05, 1), loc='upper left')
-        st.pyplot(fig)
-        chart_cache[cache_key] = fig
-        plt.close(fig)
+        st.image(chart_cache[cache_key])
+        return
+    # Check Google Drive
+    if creds:
+        buf = download_chart_from_drive(chart_key, creds, folder_id)
+        if buf:
+            st.image(buf)
+            chart_cache[cache_key] = buf
+            return
+    # Render and cache
+    fig, ax = plt.subplots(figsize=(max(8, len(comparison_df.index)*0.5), 6))
+    comparison_df.plot(kind='bar', ax=ax, width=0.8)
+    ax.set_ylabel('Mean Abundance')
+    ax.set_xlabel('Microbe')
+    ax.set_title(f"Comparison Across {group_label}s")
+    ax.legend(title=group_label, bbox_to_anchor=(1.05, 1), loc='upper left')
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    st.image(buf)
+    chart_cache[cache_key] = buf
+    if creds:
+        upload_chart_to_drive(chart_key, fig, creds, folder_id)
+    plt.close(fig)
+
+# Enhanced Single Group Bar Chart with Drive cache
+def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers, creds=None, folder_id=None):
+    cache_key = (group_label, group, tuple(microbes.index))
+    chart_key = f"single_{group_label}_{group}_{'_'.join(map(str, microbes.index))}"
+    # Check in-app cache
+    if cache_key in chart_cache:
+        st.image(chart_cache[cache_key])
+        return
+    # Check Google Drive
+    if creds:
+        buf = download_chart_from_drive(chart_key, creds, folder_id)
+        if buf:
+            st.image(buf)
+            chart_cache[cache_key] = buf
+            return
+    # Render and cache
+    top_ids = [microbe_numbers.get(microbe, microbe) for microbe in microbes.index]
+    fig, ax = plt.subplots()
+    microbes.index = top_ids
+    microbes.plot(kind='bar', ax=ax, color='skyblue')
+    ax.set_ylabel('Mean Abundance')
+    ax.set_xlabel('Microbe (ID)')
+    ax.set_title(f"{group}")
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    st.image(buf)
+    chart_cache[cache_key] = buf
+    if creds:
+        upload_chart_to_drive(chart_key, fig, creds, folder_id)
+    plt.close(fig)
 
 st.header(f"Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s")
 if not comparison_df.empty:
-    render_grouped_bar_chart(comparison_df, group_label, selected_groups)
+    creds = None
+    if 'SERVICE_ACCOUNT_KEY' in st.secrets:
+        from google.oauth2.service_account import Credentials
+        creds = Credentials.from_service_account_info(st.secrets["SERVICE_ACCOUNT_KEY"], scopes=SCOPES)
+    render_grouped_bar_chart(comparison_df, group_label, selected_groups, creds)
 else:
     st.warning("No data available for the selected groups.")
-
-# --- Per-group bar charts with caching ---
-def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers):
-    cache_key = (group_label, group, tuple(microbes.index))
-    if cache_key in chart_cache:
-        st.pyplot(chart_cache[cache_key])
-    else:
-        top_ids = [microbe_numbers.get(microbe, microbe) for microbe in microbes.index]
-        fig, ax = plt.subplots()
-        microbes.index = top_ids
-        microbes.plot(kind='bar', ax=ax, color='skyblue')
-        ax.set_ylabel('Mean Abundance')
-        ax.set_xlabel('Microbe (ID)')
-        ax.set_title(f"{group}")
-        st.pyplot(fig)
-        chart_cache[cache_key] = fig
-        plt.close(fig)
 
 st.header(f"Top {top_n} Microbes per {group_label}")
 for group, microbes in top_microbes.items():
     st.subheader(f"{group_label if group_col == group else group}")
-    render_single_group_bar_chart(microbes, group, group_label, microbe_numbers)
+    creds = None
+    if 'SERVICE_ACCOUNT_KEY' in st.secrets:
+        from google.oauth2.service_account import Credentials
+        creds = Credentials.from_service_account_info(st.secrets["SERVICE_ACCOUNT_KEY"], scopes=SCOPES)
+    render_single_group_bar_chart(microbes, group, group_label, microbe_numbers, creds)
     st.write(microbes)
 
 # Microbe ID mapping table
@@ -322,3 +424,16 @@ st.header(f"Comparison Table Across {group_label}s")
 st.dataframe(comparison_df)
 
 st.info("Upload your own files or change grouping column and top N for different comparisons.")
+
+# --- Google Drive Integration ---
+st.sidebar.header("Google Drive Integration")
+if 'google_drive_creds' not in st.session_state:
+    if st.sidebar.button("Authenticate with Google Drive"):
+        creds = authenticate_google_drive()
+        st.session_state['google_drive_creds'] = creds
+        st.sidebar.success("Authenticated with Google Drive!")
+    else:
+        st.sidebar.info("Click to authenticate with Google Drive before uploading charts.")
+else:
+    st.sidebar.success("Authenticated with Google Drive!")
+    creds = st.session_state['google_drive_creds']
