@@ -13,7 +13,12 @@ import matplotlib.pyplot as plt
 import os
 import tempfile
 
+
 st.title("Microbiome Top Microbes Dashboard")
+
+# --- Limitations & Warnings ---
+st.sidebar.header("Limitations & Warnings")
+st.sidebar.warning("\n- The live demo may be slow or crash if toggling options too quickly due to Streamlit Cloud resource limits.\n- Please toggle one option at a time and wait for the page to load before toggling again.\n- File upload is disabled on the cloud demo; to use this feature, install and run the app locally.\n- If you see errors or the app crashes, reload the page and try again.\n")
 
 # --- File uploaders ---
 st.sidebar.header("Upload Your Files")
@@ -163,10 +168,7 @@ if selected_groups != st.session_state['last_selected_groups']:
         st.session_state['last_toggle_time'] = now
 
 if show_loading:
-    loading_popup = st.empty()
-    loading_popup.info("Do not interact with the screen while content is loading...")
-    time.sleep(3)
-    loading_popup.empty()
+    st.info("Do not interact with the screen while content is loading...")
 top_n = st.slider("Select number of top microbes:", min_value=5, max_value=15, value=10, step=1)
 
 # --- Compute top microbes per group ---
