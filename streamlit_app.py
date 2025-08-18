@@ -20,17 +20,18 @@ from googleapiclient.http import MediaIoBaseUpload
 
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
-# Helper to authenticate user with Google Drive
+# Remove old authenticate_google_drive and GOOGLE_OAUTH logic
+import os
+from google.oauth2.credentials import Credentials
 
-def authenticate_google_drive():
-    import json, tempfile
-    # Write OAuth client secrets to a temp file
-    client_secrets = st.secrets["GOOGLE_OAUTH"]
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.json')
-    tmp.write(json.dumps({"web": dict(client_secrets)}).encode('utf-8'))
-    tmp.flush()
-    flow = InstalledAppFlow.from_client_secrets_file(tmp.name, SCOPES)
-    creds = flow.run_local_server(port=0)
+SCOPES = ['https://www.googleapis.com/auth/drive.file']
+
+def get_google_drive_creds():
+    creds = None
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    else:
+        st.error("token.json not found. Please authenticate locally and upload token.json.")
     return creds
 
 # Helper to upload chart image to Google Drive
@@ -332,21 +333,43 @@ def download_chart_from_drive(chart_key, creds, folder_id=None):
     buf.seek(0)
     return buf
 
+# Utility to list files in a Drive folder
+
+def list_drive_files(creds, folder_id=None):
+    drive_service = build('drive', 'v3', credentials=creds)
+    query = f"mimeType='image/png'"
+    if folder_id:
+        query += f" and '{folder_id}' in parents"
+    results = drive_service.files().list(q=query, fields="files(id, name)").execute()
+    items = results.get('files', [])
+    return items
+
 # Enhanced Grouped Bar Chart with Drive cache
 def render_grouped_bar_chart(comparison_df, group_label, selected_groups, creds=None, folder_id=None):
-    cache_key = (group_label, tuple(sorted(selected_groups)), tuple(comparison_df.index))
+    # Use tuple of strings for cache key to avoid object identity issues
+    cache_key = (str(group_label), tuple(map(str, sorted(selected_groups))), tuple(map(str, comparison_df.index)))
     chart_key = f"grouped_{group_label}_{'_'.join(map(str, sorted(selected_groups)))}_{'_'.join(map(str, comparison_df.index))}"
+    cache_status = None
     # Check in-app cache
     if cache_key in chart_cache:
+        cache_status = "hit"
+        st.info(f"Loaded chart from cache: {chart_key}")
         st.image(chart_cache[cache_key])
+        st.write(f"Cache status: HIT (persisted in session_state)")
         return
     # Check Google Drive
     if creds:
-        buf = download_chart_from_drive(chart_key, creds, folder_id)
-        if buf:
-            st.image(buf)
-            chart_cache[cache_key] = buf
-            return
+        try:
+            buf = download_chart_from_drive(chart_key, creds, folder_id)
+            if buf:
+                cache_status = "drive"
+                st.info(f"Downloaded chart from Google Drive: {chart_key}")
+                st.image(buf)
+                chart_cache[cache_key] = buf
+                st.write(f"Cache status: MISS (loaded from Drive, now cached in session_state)")
+                return
+        except Exception as e:
+            st.error(f"Error downloading chart from Drive: {e}")
     # Render and cache
     fig, ax = plt.subplots(figsize=(max(8, len(comparison_df.index)*0.5), 6))
     comparison_df.plot(kind='bar', ax=ax, width=0.8)
@@ -357,27 +380,44 @@ def render_grouped_bar_chart(comparison_df, group_label, selected_groups, creds=
     buf = io.BytesIO()
     fig.savefig(buf, format='png')
     buf.seek(0)
+    cache_status = "miss"
+    st.info(f"Rendered and cached chart: {chart_key}")
     st.image(buf)
-    chart_cache[cache_key] = buf
+    chart_cache[cache_key] = buf  # Persistently save in session_state until app restarts
+    st.write(f"Cache status: MISS (new chart cached in session_state)")
     if creds:
-        upload_chart_to_drive(chart_key, fig, creds, folder_id)
+        try:
+            upload_chart_to_drive(chart_key, fig, creds, folder_id)
+            st.success(f"Uploaded chart to Google Drive: {chart_key}")
+        except Exception as e:
+            st.error(f"Error uploading chart to Drive: {e}")
     plt.close(fig)
 
 # Enhanced Single Group Bar Chart with Drive cache
 def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers, creds=None, folder_id=None):
-    cache_key = (group_label, group, tuple(microbes.index))
+    cache_key = (str(group_label), str(group), tuple(map(str, microbes.index)))
     chart_key = f"single_{group_label}_{group}_{'_'.join(map(str, microbes.index))}"
+    cache_status = None
     # Check in-app cache
     if cache_key in chart_cache:
+        cache_status = "hit"
+        st.info(f"Loaded chart from cache: {chart_key}")
         st.image(chart_cache[cache_key])
+        st.write(f"Cache status: HIT (persisted in session_state)")
         return
     # Check Google Drive
     if creds:
-        buf = download_chart_from_drive(chart_key, creds, folder_id)
-        if buf:
-            st.image(buf)
-            chart_cache[cache_key] = buf
-            return
+        try:
+            buf = download_chart_from_drive(chart_key, creds, folder_id)
+            if buf:
+                cache_status = "drive"
+                st.info(f"Downloaded chart from Google Drive: {chart_key}")
+                st.image(buf)
+                chart_cache[cache_key] = buf
+                st.write(f"Cache status: MISS (loaded from Drive, now cached in session_state)")
+                return
+        except Exception as e:
+            st.error(f"Error downloading chart from Drive: {e}")
     # Render and cache
     top_ids = [microbe_numbers.get(microbe, microbe) for microbe in microbes.index]
     fig, ax = plt.subplots()
@@ -389,18 +429,29 @@ def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers,
     buf = io.BytesIO()
     fig.savefig(buf, format='png')
     buf.seek(0)
+    cache_status = "miss"
+    st.info(f"Rendered and cached chart: {chart_key}")
     st.image(buf)
-    chart_cache[cache_key] = buf
+    chart_cache[cache_key] = buf  # Persistently save in session_state until app restarts
+    st.write(f"Cache status: MISS (new chart cached in session_state)")
     if creds:
-        upload_chart_to_drive(chart_key, fig, creds, folder_id)
+        try:
+            upload_chart_to_drive(chart_key, fig, creds, folder_id)
+            st.success(f"Uploaded chart to Google Drive: {chart_key}")
+        except Exception as e:
+            st.error(f"Error uploading chart to Drive: {e}")
     plt.close(fig)
+
+creds = get_google_drive_creds()
+if creds:
+    FOLDER_ID = None # Set your folder ID if needed
+    files = list_drive_files(creds, folder_id=FOLDER_ID)
+    st.sidebar.write("Files in your Google Drive:")
+    for f in files:
+        st.sidebar.write(f"{f['name']} ({f['id']})")
 
 st.header(f"Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s")
 if not comparison_df.empty:
-    creds = None
-    if 'SERVICE_ACCOUNT_KEY' in st.secrets:
-        from google.oauth2.service_account import Credentials
-        creds = Credentials.from_service_account_info(st.secrets["SERVICE_ACCOUNT_KEY"], scopes=SCOPES)
     render_grouped_bar_chart(comparison_df, group_label, selected_groups, creds)
 else:
     st.warning("No data available for the selected groups.")
@@ -408,10 +459,6 @@ else:
 st.header(f"Top {top_n} Microbes per {group_label}")
 for group, microbes in top_microbes.items():
     st.subheader(f"{group_label if group_col == group else group}")
-    creds = None
-    if 'SERVICE_ACCOUNT_KEY' in st.secrets:
-        from google.oauth2.service_account import Credentials
-        creds = Credentials.from_service_account_info(st.secrets["SERVICE_ACCOUNT_KEY"], scopes=SCOPES)
     render_single_group_bar_chart(microbes, group, group_label, microbe_numbers, creds)
     st.write(microbes)
 
@@ -425,15 +472,9 @@ st.dataframe(comparison_df)
 
 st.info("Upload your own files or change grouping column and top N for different comparisons.")
 
-# --- Google Drive Integration ---
 st.sidebar.header("Google Drive Integration")
-if 'google_drive_creds' not in st.session_state:
-    if st.sidebar.button("Authenticate with Google Drive"):
-        creds = authenticate_google_drive()
-        st.session_state['google_drive_creds'] = creds
-        st.sidebar.success("Authenticated with Google Drive!")
-    else:
-        st.sidebar.info("Click to authenticate with Google Drive before uploading charts.")
+creds = get_google_drive_creds()
+if creds:
+    st.sidebar.success("Google Drive access enabled via token.json.")
 else:
-    st.sidebar.success("Authenticated with Google Drive!")
-    creds = st.session_state['google_drive_creds']
+    st.sidebar.error("Google Drive access not available. Please upload token.json.")
