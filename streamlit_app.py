@@ -134,8 +134,14 @@ group_values = merged[group_col].dropna().unique().tolist()
 default_selected = group_values.copy()
 
 # Debounce logic: store last selection and time in session_state
+
+# Ensure last_selected_groups only contains valid options
 if 'last_selected_groups' not in st.session_state:
     st.session_state['last_selected_groups'] = default_selected
+else:
+    valid_selected_groups = [g for g in st.session_state['last_selected_groups'] if g in group_values]
+    if valid_selected_groups != st.session_state['last_selected_groups']:
+        st.session_state['last_selected_groups'] = valid_selected_groups
 if 'last_toggle_time' not in st.session_state:
     st.session_state['last_toggle_time'] = time.time()
 
