@@ -84,6 +84,8 @@ def load_abundance_df(_uploaded_biom):
     return parse_biom(_uploaded_biom)
 
 
+
+# --- Load BIOM file for demo mode (cloud) ---
 try:
     if uploaded_biom is not None:
         if hasattr(uploaded_biom, 'size') and uploaded_biom.size > 100 * 1024 * 1024:
@@ -91,20 +93,14 @@ try:
             st.stop()
         abundance_df = load_abundance_df(uploaded_biom)
     else:
-        # Load demo Feather file for demo mode (with error handling and sampling)
-        try:
-            if not os.path.exists('demo_biom.feather'):
-                st.error("Demo Feather file not found in repo. Please upload a BIOM file and convert it to Feather format.")
-                st.stop()
-            df = pd.read_feather('demo_biom.feather')
-            if 'index' in df.columns:
-                df = df.set_index('index')
-            # Sample first 100 rows and 100 columns for resource efficiency
-            abundance_df = df.iloc[:100, :100]
-            st.info(f"Loaded demo Feather file with shape: {abundance_df.shape}")
-        except Exception as e:
-            st.error(f"Error loading demo Feather file: {e}")
+        # Demo mode: load demo_biom.biom file
+        if not os.path.exists('demo_biom.biom'):
+            st.error("Demo BIOM file not found in repo. Please upload a BIOM file named demo_biom.biom.")
             st.stop()
+        abundance_df = parse_biom(open('demo_biom.biom', 'rb'))
+        # Sample for resource efficiency
+        abundance_df = abundance_df.iloc[:100, :100]
+        st.info(f"Loaded demo BIOM file with shape: {abundance_df.shape}")
 except Exception as e:
     st.error(f"Error loading biom file: {e}")
     st.stop()
@@ -131,7 +127,8 @@ except Exception as e:
     st.error(f"Error merging abundance and metadata: {e}. Please check that sample IDs match.")
     st.stop()
 
-# --- Select grouping column and top N ---
+
+# --- Precompute and cache group means for grouped bar chart ---
 group_options = [
     ('age_cat', 'Age Category'),
     ('mental_illness', 'Mental Illness'),
@@ -139,103 +136,73 @@ group_options = [
     ('sample_type', 'Sample Type'),
     ('asd', 'Autism Spectrum Disorder (ASD)')
 ]
+
+@st.cache_data(show_spinner=False)
+def precompute_group_means(merged, group_options, metadata):
+    cache = {}
+    for group_col, group_label in group_options:
+        group_values = merged[group_col].dropna().unique().tolist()
+        cache[group_col] = {}
+        for group in group_values:
+            group_df = merged[merged[group_col] == group]
+            mean_abundance = group_df.iloc[:, :-len(metadata.columns)].mean(axis=0)
+            cache[group_col][group] = mean_abundance
+        # Overall mean
+        overall_mean = merged.iloc[:, :-len(metadata.columns)].mean(axis=0)
+        cache[group_col]['All'] = overall_mean
+    return cache
+
+cached_group_means = precompute_group_means(merged, group_options, metadata)
+
+# --- UI for grouped bar chart ---
 group_col_label = st.selectbox("Select grouping column:", [label for _, label in group_options])
-show_loading = False
-if 'last_group_col_label' not in st.session_state:
-    st.session_state['last_group_col_label'] = group_col_label
-if group_col_label != st.session_state['last_group_col_label']:
-    show_loading = True
-    st.session_state['last_group_col_label'] = group_col_label
 group_col = next(code for code, label in group_options if label == group_col_label)
 group_label = group_col_label
-
-# Get all unique group values for the selected column
-
-import time
-
-group_values = merged[group_col].dropna().unique().tolist()
-default_selected = group_values.copy()
-
-# Debounce logic: store last selection and time in session_state
-
-# Ensure last_selected_groups only contains valid options
-if 'last_selected_groups' not in st.session_state:
-    st.session_state['last_selected_groups'] = default_selected
-else:
-    valid_selected_groups = [g for g in st.session_state['last_selected_groups'] if g in group_values]
-    if valid_selected_groups != st.session_state['last_selected_groups']:
-        st.session_state['last_selected_groups'] = valid_selected_groups
-if 'last_toggle_time' not in st.session_state:
-    st.session_state['last_toggle_time'] = time.time()
-
+group_values = list(cached_group_means[group_col].keys())
+group_values_no_all = [g for g in group_values if g != 'All']
+default_selected = group_values_no_all.copy()
 selected_groups = st.multiselect(
     f"Show {group_label} options in grouped bar chart:",
-    options=group_values,
-    default=st.session_state['last_selected_groups'],
+    options=group_values_no_all,
+    default=default_selected,
     help="Toggle which groups to display in the grouped bar chart."
 )
-
-now = time.time()
-if selected_groups != st.session_state['last_selected_groups']:
-    # Only update if 3 seconds have passed since last toggle
-    if now - st.session_state['last_toggle_time'] < 3.0:
-        st.warning("Please wait 3 seconds between toggles to avoid resource overload.")
-    else:
-        show_loading = True
-        st.session_state['last_selected_groups'] = selected_groups
-        st.session_state['last_toggle_time'] = now
-
-if show_loading:
-    st.info("Do not interact with the screen while content is loading...")
 top_n = st.slider("Select number of top microbes:", min_value=5, max_value=15, value=10, step=1)
 
-# --- Compute top microbes per group ---
-def get_top_microbes(df, group_col, top_n=10):
+
+# --- Compute top microbes and prepare comparison table from cached means ---
+def get_top_microbes_from_cache(cached_means, selected_groups, top_n):
+    # Find all unique top microbes across selected groups
+    all_top_microbes = pd.Index([])
     top_microbes = {}
-    for group in df[group_col].dropna().unique():
-        group_df = df[df[group_col] == group]
-        mean_abundance = group_df.iloc[:, :-len(metadata.columns)].mean(axis=0)
+    for group in selected_groups + ['All']:
+        mean_abundance = cached_means[group]
         top = mean_abundance.sort_values(ascending=False).head(top_n)
         top_microbes[group] = top
-    return top_microbes
+        all_top_microbes = all_top_microbes.union(top.index)
+    # Assign microbe numbers
+    microbe_numbers = {microbe: f"M{idx+1}" for idx, microbe in enumerate(all_top_microbes)}
+    # Prepare comparison table
+    comparison_data = {}
+    for group in selected_groups:
+        mean_abundance = cached_means[group]
+        comparison_data[group] = mean_abundance.loc[all_top_microbes]
+    # Add overall mean
+    comparison_data['All'] = cached_means['All'].loc[all_top_microbes]
+    comparison_df = pd.DataFrame(comparison_data)
+    comparison_df.index = [microbe_numbers[microbe] for microbe in comparison_df.index]
+    id_mapping_df = pd.DataFrame({
+        'Microbe ID': [microbe_numbers[microbe] for microbe in all_top_microbes],
+        'Sequence': [microbe for microbe in all_top_microbes]
+    })
+    return top_microbes, comparison_df, id_mapping_df, microbe_numbers
 
-top_microbes = get_top_microbes(merged, group_col, top_n)
-
-
-# --- Find all unique top microbes across groups ---
-all_top_microbes = pd.Index([])
-for microbes in top_microbes.values():
-    all_top_microbes = all_top_microbes.union(microbes.index)
-
-# --- Assign a unique number to each microbe for tracking ---
-microbe_numbers = {microbe: f"M{idx+1}" for idx, microbe in enumerate(all_top_microbes)}
-
-# --- Prepare comparison table ---
-comparison_data = {}
-for group in top_microbes.keys():
-    group_df = merged[merged[group_col] == group]
-    mean_abundance = group_df.iloc[:, :-len(metadata.columns)].mean(axis=0)
-    comparison_data[group] = mean_abundance.loc[all_top_microbes]
-# Add overall mean abundance
-overall_mean = merged.iloc[:, :-len(metadata.columns)].mean(axis=0).loc[all_top_microbes]
-comparison_data['All'] = overall_mean
-comparison_df = pd.DataFrame(comparison_data)
-
-# --- Add microbe numbers to index for display (ID only for less crowding) ---
-
-# Add microbe ID mapping table to the dashboard
-comparison_df.index = [microbe_numbers[microbe] for microbe in comparison_df.index]
-id_mapping_df = pd.DataFrame({
-    'Microbe ID': [microbe_numbers[microbe] for microbe in all_top_microbes],
-    'Sequence': [microbe for microbe in all_top_microbes]
-})
-
-# --- Visualize results ---
+top_microbes, comparison_df, id_mapping_df, microbe_numbers = get_top_microbes_from_cache(
+    cached_group_means[group_col], selected_groups, top_n
+)
 
 
-# Grouped Bar Chart: Microbe Abundance Across Groups (always at top)
-
-# Filter comparison_df columns based on selected groups (keep 'All' column always)
+# --- Visualize grouped bar chart using cached results ---
 filtered_columns = [col for col in comparison_df.columns if col in selected_groups or col == 'All']
 filtered_comparison_df = comparison_df[filtered_columns]
 
@@ -252,6 +219,7 @@ ax3.set_ylabel('Mean Abundance')
 ax3.set_xlabel('Microbe (ID)')
 ax3.legend()
 st.pyplot(fig3)
+plt.close(fig3)
 
 # Per-group bar charts
 st.header(f"Top {top_n} Microbes per {group_label}")
