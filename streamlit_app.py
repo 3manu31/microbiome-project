@@ -222,6 +222,14 @@ def create_comparison_table(cached_combo_means, selected_groups, top_n):
 
 comparison_df = create_comparison_table(cached_group_combo_means[group_col], selected_groups, top_n)
 
+# --- Update Comparison Table with Microbe Codes ---
+def update_comparison_table_with_codes(comparison_df, microbe_numbers):
+    updated_comparison_df = comparison_df.copy()
+    updated_comparison_df.index = [microbe_numbers.get(microbe, microbe) for microbe in updated_comparison_df.index]
+    return updated_comparison_df
+
+comparison_df = update_comparison_table_with_codes(comparison_df, microbe_numbers)
+
 # --- Visualize grouped bar chart using cached minimal data ---
 st.header(f"Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s")
 if not comparison_df.empty:
