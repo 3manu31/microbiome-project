@@ -137,33 +137,41 @@ group_options = [
     ('asd', 'Autism Spectrum Disorder (ASD)')
 ]
 
+
+import itertools
+
 @st.cache_data(show_spinner=False)
-def precompute_group_means(merged, group_options, metadata):
+def precompute_group_combo_means(merged, group_options, metadata):
     cache = {}
     for group_col, group_label in group_options:
         group_values = merged[group_col].dropna().unique().tolist()
+        combos = []
+        # All non-empty combinations
+        for r in range(1, len(group_values)+1):
+            combos.extend(itertools.combinations(group_values, r))
         cache[group_col] = {}
-        for group in group_values:
-            group_df = merged[merged[group_col] == group]
-            mean_abundance = group_df.iloc[:, :-len(metadata.columns)].mean(axis=0)
-            cache[group_col][group] = mean_abundance
-        # Overall mean
+        for combo in combos:
+            # Combo is a tuple of group values
+            combo_df = merged[merged[group_col].isin(combo)]
+            mean_abundance = combo_df.iloc[:, :-len(metadata.columns)].mean(axis=0)
+            cache[group_col][frozenset(combo)] = mean_abundance
+        # Overall mean (all groups)
         overall_mean = merged.iloc[:, :-len(metadata.columns)].mean(axis=0)
         cache[group_col]['All'] = overall_mean
     return cache
 
-cached_group_means = precompute_group_means(merged, group_options, metadata)
+cached_group_combo_means = precompute_group_combo_means(merged, group_options, metadata)
 
 # --- UI for grouped bar chart ---
+
 group_col_label = st.selectbox("Select grouping column:", [label for _, label in group_options])
 group_col = next(code for code, label in group_options if label == group_col_label)
 group_label = group_col_label
-group_values = list(cached_group_means[group_col].keys())
-group_values_no_all = [g for g in group_values if g != 'All']
-default_selected = group_values_no_all.copy()
+group_values = [g for g in merged[group_col].dropna().unique().tolist()]
+default_selected = group_values.copy()
 selected_groups = st.multiselect(
     f"Show {group_label} options in grouped bar chart:",
-    options=group_values_no_all,
+    options=group_values,
     default=default_selected,
     help="Toggle which groups to display in the grouped bar chart."
 )
@@ -171,55 +179,62 @@ top_n = st.slider("Select number of top microbes:", min_value=5, max_value=15, v
 
 
 # --- Compute top microbes and prepare comparison table from cached means ---
-def get_top_microbes_from_cache(cached_means, selected_groups, top_n):
-    # Find all unique top microbes across selected groups
-    all_top_microbes = pd.Index([])
-    top_microbes = {}
-    for group in selected_groups + ['All']:
-        mean_abundance = cached_means[group]
-        top = mean_abundance.sort_values(ascending=False).head(top_n)
-        top_microbes[group] = top
-        all_top_microbes = all_top_microbes.union(top.index)
-    # Assign microbe numbers
+
+def get_top_microbes_from_combo_cache(cached_combo_means, selected_groups, top_n):
+    # Use frozenset for lookup
+    combo_key = frozenset(selected_groups)
+    mean_abundance = cached_combo_means.get(combo_key)
+    if mean_abundance is None:
+        # fallback: empty DataFrame
+        return {}, pd.DataFrame(), pd.DataFrame(), {}
+    top = mean_abundance.sort_values(ascending=False).head(top_n)
+    all_top_microbes = top.index
     microbe_numbers = {microbe: f"M{idx+1}" for idx, microbe in enumerate(all_top_microbes)}
-    # Prepare comparison table
-    comparison_data = {}
-    for group in selected_groups:
-        mean_abundance = cached_means[group]
-        comparison_data[group] = mean_abundance.loc[all_top_microbes]
-    # Add overall mean
-    comparison_data['All'] = cached_means['All'].loc[all_top_microbes]
+    comparison_data = {"Combo": mean_abundance.loc[all_top_microbes]}
     comparison_df = pd.DataFrame(comparison_data)
     comparison_df.index = [microbe_numbers[microbe] for microbe in comparison_df.index]
     id_mapping_df = pd.DataFrame({
         'Microbe ID': [microbe_numbers[microbe] for microbe in all_top_microbes],
         'Sequence': [microbe for microbe in all_top_microbes]
     })
+    top_microbes = {"Combo": top}
     return top_microbes, comparison_df, id_mapping_df, microbe_numbers
 
-top_microbes, comparison_df, id_mapping_df, microbe_numbers = get_top_microbes_from_cache(
-    cached_group_means[group_col], selected_groups, top_n
+top_microbes, comparison_df, id_mapping_df, microbe_numbers = get_top_microbes_from_combo_cache(
+    cached_group_combo_means[group_col], selected_groups, top_n
 )
 
 
-# --- Visualize grouped bar chart using cached results ---
-filtered_columns = [col for col in comparison_df.columns if col in selected_groups or col == 'All']
-filtered_comparison_df = comparison_df[filtered_columns]
 
-st.header(f"Grouped Bar Chart: Microbe Abundance Across {group_label}s")
-fig3, ax3 = plt.subplots(figsize=(max(8, len(filtered_comparison_df.index)*0.5), 6))
-bar_width = 0.8 / len(filtered_comparison_df.columns)
-indices = range(len(filtered_comparison_df.index))
-for i, group in enumerate(filtered_comparison_df.columns):
-    color = 'red' if group == 'All' else None
-    ax3.bar([x + i*bar_width for x in indices], filtered_comparison_df[group], width=bar_width, label=group, color=color)
-ax3.set_xticks([x + bar_width*(len(filtered_comparison_df.columns)/2-0.5) for x in indices])
-ax3.set_xticklabels(filtered_comparison_df.index, rotation=90)
-ax3.set_ylabel('Mean Abundance')
-ax3.set_xlabel('Microbe (ID)')
-ax3.legend()
-st.pyplot(fig3)
-plt.close(fig3)
+# --- Enhanced Comparison Table ---
+def create_comparison_table(cached_combo_means, selected_groups, top_n):
+    comparison_data = {}
+    for group in selected_groups:
+        group_key = frozenset([group])
+        mean_abundance = cached_combo_means.get(group_key, pd.Series(dtype='float64'))
+        comparison_data[group] = mean_abundance
+
+    comparison_df = pd.DataFrame(comparison_data)
+    top_microbes = comparison_df.mean(axis=1).sort_values(ascending=False).head(top_n).index
+    comparison_df = comparison_df.loc[top_microbes]
+    comparison_df.index.name = 'Microbe'
+    return comparison_df
+
+comparison_df = create_comparison_table(cached_group_combo_means[group_col], selected_groups, top_n)
+
+# --- Visualize grouped bar chart using cached minimal data ---
+st.header(f"Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s")
+if not comparison_df.empty:
+    fig, ax = plt.subplots(figsize=(max(8, len(comparison_df.index)*0.5), 6))
+    comparison_df.plot(kind='bar', ax=ax, width=0.8)
+    ax.set_ylabel('Mean Abundance')
+    ax.set_xlabel('Microbe')
+    ax.set_title(f"Comparison Across {group_label}s")
+    ax.legend(title=group_label, bbox_to_anchor=(1.05, 1), loc='upper left')
+    st.pyplot(fig)
+    plt.close(fig)
+else:
+    st.warning("No data available for the selected groups.")
 
 # Per-group bar charts
 st.header(f"Top {top_n} Microbes per {group_label}")
