@@ -14,6 +14,10 @@ import matplotlib.pyplot as plt
 import os
 import tempfile
 import os
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from google.auth.transport.requests import Request
 
 # Detect Streamlit Cloud environment
 is_cloud = os.environ.get("STREAMLIT_SERVER_HEADLESS", "false").lower() == "true"
@@ -61,6 +65,37 @@ try:
 except Exception as e:
     st.error(f"Error loading metadata: {e}")
     st.stop()
+
+# --- Google Drive API Authentication ---
+CLIENT_SECRET_FILE = "client_secret_130993493000-7dl3q2s9lhiq1pp42psnha87vpnfaif0.apps.googleusercontent.com.json"
+SCOPES = ['https://www.googleapis.com/auth/drive.file']
+
+def authenticate_google_drive():
+    creds = None
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
+            creds = flow.run_local_server(port=8501)
+        with open('token.json', 'w') as token:
+            token.write(creds.to_json())
+    return creds
+
+st.sidebar.header("Google Drive Integration")
+if st.sidebar.button("Authenticate with Google Drive"):
+    creds = authenticate_google_drive()
+    drive_service = build('drive', 'v3', credentials=creds)
+    results = drive_service.files().list(pageSize=10, fields="files(id, name)").execute()
+    items = results.get('files', [])
+    if not items:
+        st.sidebar.write("No files found in Google Drive.")
+    else:
+        st.sidebar.write("Files in Google Drive:")
+        for item in items:
+            st.sidebar.write(f"{item['name']} ({item['id']})")
 
 # --- Load abundance data from .biom file ---
 
