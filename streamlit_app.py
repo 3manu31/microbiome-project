@@ -5,6 +5,7 @@ This app lets users select a grouping column (healthy, mental illness, sex, samp
 """
 
 
+
 import streamlit as st
 import pandas as pd
 from biom import load_table
@@ -12,6 +13,10 @@ from biom.table import Table
 import matplotlib.pyplot as plt
 import os
 import tempfile
+import os
+
+# Detect Streamlit Cloud environment
+is_cloud = os.environ.get("STREAMLIT_SERVER_HEADLESS", "false").lower() == "true"
 
 
 st.title("Microbiome Top Microbes Dashboard")
@@ -20,18 +25,25 @@ st.title("Microbiome Top Microbes Dashboard")
 st.sidebar.header("Limitations & Warnings")
 st.sidebar.warning("\n- The live demo may be slow or crash if toggling options too quickly due to Streamlit Cloud resource limits.\n- Please toggle one option at a time and wait for the page to load before toggling again.\n- File upload is disabled on the cloud demo; to use this feature, install and run the app locally.\n- If you see errors or the app crashes, reload the page and try again.\n")
 
-# --- File uploaders ---
-st.sidebar.header("Upload Your Files")
-uploaded_metadata = st.sidebar.file_uploader("Upload metadata file (.txt or .csv)", type=["txt", "csv"])
-uploaded_biom = st.sidebar.file_uploader("Upload biom file (.biom)", type=["biom"])
 
-# --- Load metadata ---
-try:
+# --- File uploaders (only enabled for local runs) ---
+if not is_cloud:
+    st.sidebar.header("Upload Your Files")
+    uploaded_metadata = st.sidebar.file_uploader("Upload metadata file (.txt or .csv)", type=["txt", "csv"])
+    uploaded_biom = st.sidebar.file_uploader("Upload biom file (.biom)", type=["biom"])
+else:
+    uploaded_metadata = None
+    uploaded_biom = None
+
+
+# --- Load metadata with caching ---
+@st.cache_data(show_spinner=False)
+def load_metadata(uploaded_metadata):
     if uploaded_metadata is not None:
         if hasattr(uploaded_metadata, 'size') and uploaded_metadata.size > 100 * 1024 * 1024:
             st.error("Uploaded metadata file is too large. Please upload a file smaller than 100MB.")
             st.stop()
-        metadata = pd.read_csv(
+        return pd.read_csv(
             uploaded_metadata,
             sep='\t' if uploaded_metadata.name.endswith('.txt') else ',',
             low_memory=False,
@@ -42,37 +54,42 @@ try:
         if not os.path.exists('metadata_demo.txt'):
             st.error("Demo metadata_demo.txt file not found in repo. Please upload a metadata file.")
             st.stop()
-        metadata = pd.read_csv('metadata_demo.txt', sep='\t', low_memory=False, encoding='utf-8')
+        return pd.read_csv('metadata_demo.txt', sep='\t', low_memory=False, encoding='utf-8')
+
+try:
+    metadata = load_metadata(uploaded_metadata)
 except Exception as e:
     st.error(f"Error loading metadata: {e}")
     st.stop()
 
 # --- Load abundance data from .biom file ---
 
-def load_biom_file(uploaded_biom):
+
+
+# --- Load BIOM file and cache DataFrame ---
+def parse_biom(_uploaded_biom):
+    content = _uploaded_biom.read()
     try:
-        content = uploaded_biom.read()
-        # Try loading as JSON BIOM
-        try:
-            import json
-            table = Table.from_json(json.loads(content.decode('utf-8')))
-        except Exception:
-            # If not JSON, save to temp file and load as HDF5
-            with tempfile.NamedTemporaryFile(delete=False) as tmp:
-                tmp.write(content)
-                tmp.flush()
-                table = load_table(tmp.name)
-        return table
-    except Exception as e:
-        st.error(f"Error loading biom file: {e}")
-        st.stop()
+        import json
+        table = Table.from_json(json.loads(content.decode('utf-8')))
+    except Exception:
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            tmp.write(content)
+            tmp.flush()
+            table = load_table(tmp.name)
+    return table.to_dataframe(dense=True).T  # Samples as rows
+
+@st.cache_data(show_spinner=False)
+def load_abundance_df(_uploaded_biom):
+    return parse_biom(_uploaded_biom)
+
 
 try:
     if uploaded_biom is not None:
         if hasattr(uploaded_biom, 'size') and uploaded_biom.size > 100 * 1024 * 1024:
             st.error("Uploaded BIOM file is too large. Please upload a file smaller than 100MB.")
             st.stop()
-        table = load_biom_file(uploaded_biom)
+        abundance_df = load_abundance_df(uploaded_biom)
     else:
         # Load demo BIOM file
         if not os.path.exists('deblur_125nt_no_blooms.biom'):
@@ -85,7 +102,7 @@ try:
                 def read(self):
                     return self.content
             demo_biom_file = DummyUpload(demo_biom.read())
-            table = load_biom_file(demo_biom_file)
+            abundance_df = parse_biom(demo_biom_file)
 except Exception as e:
     st.error(f"Error loading biom file: {e}")
     st.stop()
@@ -99,11 +116,10 @@ is_demo = (
 )
 MAX_FEATURES = 100 if is_demo else None
 
-if metadata is None or table is None:
+if metadata is None or abundance_df is None:
     st.warning("Please upload both a metadata file and a BIOM file to proceed.")
     st.stop()
 try:
-    abundance_df = table.to_dataframe(dense=True).T  # Samples as rows
     # Limit features for demo data only
     if is_demo:
         if MAX_FEATURES and abundance_df.shape[1] > MAX_FEATURES:
