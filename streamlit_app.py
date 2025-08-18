@@ -163,7 +163,10 @@ if selected_groups != st.session_state['last_selected_groups']:
         st.session_state['last_toggle_time'] = now
 
 if show_loading:
-    st.info("Do not interact with the screen while content is loading...")
+    loading_popup = st.empty()
+    loading_popup.info("Do not interact with the screen while content is loading...")
+    time.sleep(3)
+    loading_popup.empty()
 top_n = st.slider("Select number of top microbes:", min_value=5, max_value=15, value=10, step=1)
 
 # --- Compute top microbes per group ---
