@@ -13,64 +13,42 @@ from biom.table import Table
 import matplotlib.pyplot as plt
 import os
 import tempfile
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+import itertools
 
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
 # Remove old authenticate_google_drive and GOOGLE_OAUTH logic
-import os
-from google.oauth2.credentials import Credentials
 
-SCOPES = ['https://www.googleapis.com/auth/drive.file']
+# Supabase Storage integration
+from supabase import create_client, Client
 
-def get_google_drive_creds():
-    creds = None
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-    else:
-        st.error("token.json not found. Please authenticate locally and upload token.json.")
-    return creds
+SUPABASE_URL = st.secrets["SUPABASE_URL"] if "SUPABASE_URL" in st.secrets else os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"] if "SUPABASE_KEY" in st.secrets else os.environ.get("SUPABASE_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Helper to upload chart image to Google Drive
-def upload_chart_to_drive(chart_key, fig, creds, folder_id=None):
-    drive_service = build('drive', 'v3', credentials=creds)
+
+# Helper to upload chart image to Supabase Storage
+def upload_chart_to_supabase(chart_key, fig, bucket="charts"):
+    import io
     buf = io.BytesIO()
     fig.savefig(buf, format='png')
     buf.seek(0)
-    file_metadata = {
-        'name': f'{chart_key}.png',
-        'mimeType': 'image/png'
-    }
-    if folder_id:
-        file_metadata['parents'] = [folder_id]
-    media = MediaIoBaseUpload(buf, mimetype='image/png')
-    file = drive_service.files().create(
-        body=file_metadata,
-        media_body=media,
-        fields='id'
-    ).execute()
-    return file.get('id')
+    data = buf.read()
+    try:
+        res = supabase.storage.from_(bucket).upload(f"{chart_key}.png", data, {"content-type": "image/png"})
+        return res
+    except Exception as e:
+        return {"error": str(e)}
 
-# Helper to download chart image from Google Drive
-def download_chart_from_drive(chart_key, creds, folder_id=None):
-    drive_service = build('drive', 'v3', credentials=creds)
-    query = f"name='{chart_key}.png' and mimeType='image/png'"
-    if folder_id:
-        query += f" and '{folder_id}' in parents"
-    results = drive_service.files().list(q=query, fields="files(id, name)").execute()
-    items = results.get('files', [])
-    if not items:
-        return None
-    file_id = items[0]['id']
-    request = drive_service.files().get_media(fileId=file_id)
-    buf = io.BytesIO()
-    downloader = drive_service._http.request(request.uri)
-    buf.write(downloader[1])
-    buf.seek(0)
-    return buf
+# Helper to download chart image from Supabase Storage
+def download_chart_from_supabase(chart_key, bucket="charts"):
+    res = supabase.storage.from_(bucket).download(f"{chart_key}.png")
+    if res:
+        import io
+        buf = io.BytesIO(res)
+        buf.seek(0)
+        return buf
+    return None
 
 # Detect Streamlit Cloud environment
 is_cloud = os.environ.get("STREAMLIT_SERVER_HEADLESS", "false").lower() == "true"
@@ -185,6 +163,7 @@ except Exception as e:
     st.stop()
 
 
+
 # --- Precompute and cache group means for grouped bar chart ---
 group_options = [
     ('age_cat', 'Age Category'),
@@ -193,9 +172,6 @@ group_options = [
     ('sample_type', 'Sample Type'),
     ('asd', 'Autism Spectrum Disorder (ASD)')
 ]
-
-
-import itertools
 
 @st.cache_data(show_spinner=False)
 def precompute_group_combo_means(merged, group_options, metadata):
@@ -293,60 +269,40 @@ if 'chart_cache' not in st.session_state:
     st.session_state['chart_cache'] = {}
 chart_cache = st.session_state['chart_cache']
 
-FOLDER_ID = "1n-HriVBAo3qEVc5NMiO4zUB9HY3QTffA"
+def get_top_microbes_from_combo_cache(cached_combo_means, selected_groups, top_n):
+    # Use frozenset for lookup
+    combo_key = frozenset(selected_groups)
+    mean_abundance = cached_combo_means.get(combo_key)
+    if mean_abundance is None:
+        # fallback: empty DataFrame
+        return {}, pd.DataFrame(), pd.DataFrame(), {}
+    top = mean_abundance.sort_values(ascending=False).head(top_n)
+    all_top_microbes = top.index
+    microbe_numbers = {microbe: f"M{idx+1}" for idx, microbe in enumerate(all_top_microbes)}
+    comparison_data = {"Combo": mean_abundance.loc[all_top_microbes]}
+    comparison_df = pd.DataFrame(comparison_data)
+    comparison_df.index = [microbe_numbers[microbe] for microbe in comparison_df.index]
+    id_mapping_df = pd.DataFrame({
+        'Microbe ID': [microbe_numbers[microbe] for microbe in all_top_microbes],
+        'Sequence': [microbe for microbe in all_top_microbes]
+    })
+    top_microbes = {"Combo": top}
+    return top_microbes, comparison_df, id_mapping_df, microbe_numbers
 
-# Helper to upload chart image to Google Drive
-def upload_chart_to_drive(chart_key, fig, creds, folder_id=None):
-    drive_service = build('drive', 'v3', credentials=creds)
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png')
-    buf.seek(0)
-    file_metadata = {
-        'name': f'{chart_key}.png',
-        'mimeType': 'image/png'
-    }
-    if folder_id:
-        file_metadata['parents'] = [folder_id]
-    media = MediaIoBaseUpload(buf, mimetype='image/png')
-    file = drive_service.files().create(
-        body=file_metadata,
-        media_body=media,
-        fields='id'
-    ).execute()
-    return file.get('id')
+def create_comparison_table(cached_combo_means, selected_groups, top_n):
+    comparison_data = {}
+    for group in selected_groups:
+        group_key = frozenset([group])
+        mean_abundance = cached_combo_means.get(group_key, pd.Series(dtype='float64'))
+        comparison_data[group] = mean_abundance
 
-# Helper to download chart image from Google Drive
-def download_chart_from_drive(chart_key, creds, folder_id=None):
-    drive_service = build('drive', 'v3', credentials=creds)
-    query = f"name='{chart_key}.png' and mimeType='image/png'"
-    if folder_id:
-        query += f" and '{folder_id}' in parents"
-    results = drive_service.files().list(q=query, fields="files(id, name)").execute()
-    items = results.get('files', [])
-    if not items:
-        return None
-    file_id = items[0]['id']
-    request = drive_service.files().get_media(fileId=file_id)
-    buf = io.BytesIO()
-    downloader = drive_service._http.request(request.uri)
-    buf.write(downloader[1])
-    buf.seek(0)
-    return buf
+    comparison_df = pd.DataFrame(comparison_data)
+    top_microbes = comparison_df.mean(axis=1).sort_values(ascending=False).head(top_n).index
+    comparison_df = comparison_df.loc[top_microbes]
+    comparison_df.index.name = 'Microbe'
+    return comparison_df
 
-# Utility to list files in a Drive folder
-
-def list_drive_files(creds, folder_id=None):
-    drive_service = build('drive', 'v3', credentials=creds)
-    query = f"mimeType='image/png'"
-    if folder_id:
-        query += f" and '{folder_id}' in parents"
-    results = drive_service.files().list(q=query, fields="files(id, name)").execute()
-    items = results.get('files', [])
-    return items
-
-# Enhanced Grouped Bar Chart with Drive cache
-def render_grouped_bar_chart(comparison_df, group_label, selected_groups, creds=None, folder_id=None):
-    # Use tuple of strings for cache key to avoid object identity issues
+def render_grouped_bar_chart(comparison_df, group_label, selected_groups, bucket="charts"):
     cache_key = (str(group_label), tuple(map(str, sorted(selected_groups))), tuple(map(str, comparison_df.index)))
     chart_key = f"grouped_{group_label}_{'_'.join(map(str, sorted(selected_groups)))}_{'_'.join(map(str, comparison_df.index))}"
     cache_status = None
@@ -357,19 +313,18 @@ def render_grouped_bar_chart(comparison_df, group_label, selected_groups, creds=
         st.image(chart_cache[cache_key])
         st.write(f"Cache status: HIT (persisted in session_state)")
         return
-    # Check Google Drive
-    if creds:
-        try:
-            buf = download_chart_from_drive(chart_key, creds, folder_id)
-            if buf:
-                cache_status = "drive"
-                st.info(f"Downloaded chart from Google Drive: {chart_key}")
-                st.image(buf)
-                chart_cache[cache_key] = buf
-                st.write(f"Cache status: MISS (loaded from Drive, now cached in session_state)")
-                return
-        except Exception as e:
-            st.error(f"Error downloading chart from Drive: {e}")
+    # Check Supabase Storage
+    try:
+        buf = download_chart_from_supabase(chart_key, bucket)
+        if buf:
+            cache_status = "supabase"
+            st.info(f"Downloaded chart from Supabase Storage: {chart_key}")
+            st.image(buf)
+            chart_cache[cache_key] = buf
+            st.write(f"Cache status: MISS (loaded from Supabase, now cached in session_state)")
+            return
+    except Exception as e:
+        st.error(f"Error downloading chart from Supabase: {e}")
     # Render and cache
     fig, ax = plt.subplots(figsize=(max(8, len(comparison_df.index)*0.5), 6))
     comparison_df.plot(kind='bar', ax=ax, width=0.8)
@@ -377,24 +332,30 @@ def render_grouped_bar_chart(comparison_df, group_label, selected_groups, creds=
     ax.set_xlabel('Microbe')
     ax.set_title(f"Comparison Across {group_label}s")
     ax.legend(title=group_label, bbox_to_anchor=(1.05, 1), loc='upper left')
+    import io
     buf = io.BytesIO()
     fig.savefig(buf, format='png')
     buf.seek(0)
     cache_status = "miss"
     st.info(f"Rendered and cached chart: {chart_key}")
     st.image(buf)
-    chart_cache[cache_key] = buf  # Persistently save in session_state until app restarts
+    chart_cache[cache_key] = buf
     st.write(f"Cache status: MISS (new chart cached in session_state)")
-    if creds:
-        try:
-            upload_chart_to_drive(chart_key, fig, creds, folder_id)
-            st.success(f"Uploaded chart to Google Drive: {chart_key}")
-        except Exception as e:
-            st.error(f"Error uploading chart to Drive: {e}")
+    st.info(f"Attempting to upload chart to Supabase Storage: {chart_key}")
+    try:
+        res = upload_chart_to_supabase(chart_key, fig, bucket)
+        st.info(f"Supabase upload result: {res}")
+        if hasattr(res, 'status_code') and res.status_code == 200:
+            st.success(f"Uploaded chart to Supabase Storage: {chart_key}")
+        elif isinstance(res, dict) and res.get('error'):
+            st.error(f"Supabase upload error: {res['error']}")
+        else:
+            st.info(f"Supabase upload response: {res}")
+    except Exception as e:
+        st.error(f"Error uploading chart to Supabase: {e}")
     plt.close(fig)
 
-# Enhanced Single Group Bar Chart with Drive cache
-def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers, creds=None, folder_id=None):
+def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers, bucket="charts"):
     cache_key = (str(group_label), str(group), tuple(map(str, microbes.index)))
     chart_key = f"single_{group_label}_{group}_{'_'.join(map(str, microbes.index))}"
     cache_status = None
@@ -405,19 +366,18 @@ def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers,
         st.image(chart_cache[cache_key])
         st.write(f"Cache status: HIT (persisted in session_state)")
         return
-    # Check Google Drive
-    if creds:
-        try:
-            buf = download_chart_from_drive(chart_key, creds, folder_id)
-            if buf:
-                cache_status = "drive"
-                st.info(f"Downloaded chart from Google Drive: {chart_key}")
-                st.image(buf)
-                chart_cache[cache_key] = buf
-                st.write(f"Cache status: MISS (loaded from Drive, now cached in session_state)")
-                return
-        except Exception as e:
-            st.error(f"Error downloading chart from Drive: {e}")
+    # Check Supabase Storage
+    try:
+        buf = download_chart_from_supabase(chart_key, bucket)
+        if buf:
+            cache_status = "supabase"
+            st.info(f"Downloaded chart from Supabase Storage: {chart_key}")
+            st.image(buf)
+            chart_cache[cache_key] = buf
+            st.write(f"Cache status: MISS (loaded from Supabase, now cached in session_state)")
+            return
+    except Exception as e:
+        st.error(f"Error downloading chart from Supabase: {e}")
     # Render and cache
     top_ids = [microbe_numbers.get(microbe, microbe) for microbe in microbes.index]
     fig, ax = plt.subplots()
@@ -426,40 +386,41 @@ def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers,
     ax.set_ylabel('Mean Abundance')
     ax.set_xlabel('Microbe (ID)')
     ax.set_title(f"{group}")
+    import io
     buf = io.BytesIO()
     fig.savefig(buf, format='png')
     buf.seek(0)
     cache_status = "miss"
     st.info(f"Rendered and cached chart: {chart_key}")
     st.image(buf)
-    chart_cache[cache_key] = buf  # Persistently save in session_state until app restarts
+    chart_cache[cache_key] = buf
     st.write(f"Cache status: MISS (new chart cached in session_state)")
-    if creds:
-        try:
-            upload_chart_to_drive(chart_key, fig, creds, folder_id)
-            st.success(f"Uploaded chart to Google Drive: {chart_key}")
-        except Exception as e:
-            st.error(f"Error uploading chart to Drive: {e}")
+    st.info(f"Attempting to upload chart to Supabase Storage: {chart_key}")
+    try:
+        res = upload_chart_to_supabase(chart_key, fig, bucket)
+        st.info(f"Supabase upload result: {res}")
+        if hasattr(res, 'status_code') and res.status_code == 200:
+            st.success(f"Uploaded chart to Supabase Storage: {chart_key}")
+        elif isinstance(res, dict) and res.get('error'):
+            st.error(f"Supabase upload error: {res['error']}")
+        else:
+            st.info(f"Supabase upload response: {res}")
+    except Exception as e:
+        st.error(f"Error uploading chart to Supabase: {e}")
     plt.close(fig)
 
-creds = get_google_drive_creds()
-if creds:
-    FOLDER_ID = None # Set your folder ID if needed
-    files = list_drive_files(creds, folder_id=FOLDER_ID)
-    st.sidebar.write("Files in your Google Drive:")
-    for f in files:
-        st.sidebar.write(f"{f['name']} ({f['id']})")
+
 
 st.header(f"Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s")
 if not comparison_df.empty:
-    render_grouped_bar_chart(comparison_df, group_label, selected_groups, creds)
+    render_grouped_bar_chart(comparison_df, group_label, selected_groups)
 else:
     st.warning("No data available for the selected groups.")
 
 st.header(f"Top {top_n} Microbes per {group_label}")
 for group, microbes in top_microbes.items():
     st.subheader(f"{group_label if group_col == group else group}")
-    render_single_group_bar_chart(microbes, group, group_label, microbe_numbers, creds)
+    render_single_group_bar_chart(microbes, group, group_label, microbe_numbers)
     st.write(microbes)
 
 # Microbe ID mapping table
@@ -472,9 +433,8 @@ st.dataframe(comparison_df)
 
 st.info("Upload your own files or change grouping column and top N for different comparisons.")
 
-st.sidebar.header("Google Drive Integration")
-creds = get_google_drive_creds()
-if creds:
-    st.sidebar.success("Google Drive access enabled via token.json.")
+st.sidebar.header("Supabase Storage Integration")
+if SUPABASE_URL and SUPABASE_KEY:
+    st.sidebar.success("Supabase Storage access enabled.")
 else:
-    st.sidebar.error("Google Drive access not available. Please upload token.json.")
+    st.sidebar.error("Supabase Storage access not available. Please check your credentials.")
