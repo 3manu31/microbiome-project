@@ -91,18 +91,11 @@ try:
             st.stop()
         abundance_df = load_abundance_df(uploaded_biom)
     else:
-        # Load demo BIOM file
-        if not os.path.exists('deblur_125nt_no_blooms.biom'):
-            st.error("Demo BIOM file not found in repo. Please upload a BIOM file.")
+        # Load demo CSV file for demo mode
+        if not os.path.exists('demo_biom.csv'):
+            st.error("Demo CSV file not found in repo. Please upload a BIOM file and convert it to CSV.")
             st.stop()
-        with open('deblur_125nt_no_blooms.biom', 'rb') as demo_biom:
-            class DummyUpload:
-                def __init__(self, content):
-                    self.content = content
-                def read(self):
-                    return self.content
-            demo_biom_file = DummyUpload(demo_biom.read())
-            abundance_df = parse_biom(demo_biom_file)
+        abundance_df = pd.read_csv('demo_biom.csv', index_col=0)
 except Exception as e:
     st.error(f"Error loading biom file: {e}")
     st.stop()
