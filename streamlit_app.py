@@ -230,9 +230,36 @@ comparison_df = update_comparison_table_with_codes(comparison_df, microbe_number
 
 # --- Chart rendering cache ---
 import io
+import hashlib
+
+# Initialize persistent chart cache in session state
 if 'chart_cache' not in st.session_state:
     st.session_state['chart_cache'] = {}
+if 'cache_stats' not in st.session_state:
+    st.session_state['cache_stats'] = {'hits': 0, 'misses': 0, 'total_charts': 0}
+
 chart_cache = st.session_state['chart_cache']
+cache_stats = st.session_state['cache_stats']
+
+def generate_cache_key(*args):
+    """Generate a consistent, hashable cache key from arguments."""
+    # Convert all arguments to strings and create a consistent key
+    key_string = str(args)
+    # Use hash for shorter keys while maintaining uniqueness
+    return hashlib.md5(key_string.encode()).hexdigest()
+
+def get_cache_info():
+    """Get current cache statistics."""
+    total_charts = len(chart_cache)
+    hits = cache_stats['hits']
+    misses = cache_stats['misses']
+    hit_rate = (hits / (hits + misses)) * 100 if (hits + misses) > 0 else 0
+    return {
+        'total_cached': total_charts,
+        'hits': hits,
+        'misses': misses,
+        'hit_rate': hit_rate
+    }
 
 def get_top_microbes_from_combo_cache(cached_combo_means, selected_groups, top_n):
     # Use frozenset for lookup
@@ -268,14 +295,23 @@ def create_comparison_table(cached_combo_means, selected_groups, top_n):
     return comparison_df
 
 def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
-    cache_key = (str(group_label), tuple(map(str, sorted(selected_groups))), tuple(map(str, comparison_df.index)))
+    # Generate consistent cache key
+    cache_key = generate_cache_key("grouped", group_label, sorted(selected_groups), comparison_df.index.tolist(), comparison_df.shape)
     
     # Check in-app cache
     if cache_key in chart_cache:
-        st.info(f"Loaded chart from cache")
+        cache_stats['hits'] += 1
+        st.success(f"✅ Chart loaded from cache (Hit #{cache_stats['hits']})")
         st.image(chart_cache[cache_key])
-        st.write(f"Cache status: HIT (persisted in session_state)")
+        
+        # Show cache statistics
+        cache_info = get_cache_info()
+        st.info(f"📊 Cache Stats: {cache_info['total_cached']} charts cached | Hit rate: {cache_info['hit_rate']:.1f}%")
         return
+    
+    # Chart not in cache - render new one
+    cache_stats['misses'] += 1
+    st.info(f"🔄 Rendering new chart (Miss #{cache_stats['misses']})...")
     
     # Render and cache
     fig, ax = plt.subplots(figsize=(max(8, len(comparison_df.index)*0.5), 6))
@@ -294,39 +330,64 @@ def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
     fig.savefig(buf, format='png', bbox_inches='tight', dpi=150)
     buf.seek(0)
     
-    st.info(f"Rendered and cached chart")
-    st.image(buf)
+    # Store in cache
     chart_cache[cache_key] = buf
-    st.write(f"Cache status: MISS (new chart cached in session_state)")
+    cache_stats['total_charts'] = len(chart_cache)
+    
+    st.success(f"✅ Chart rendered and cached successfully!")
+    st.image(buf)
+    
+    # Show cache statistics
+    cache_info = get_cache_info()
+    st.info(f"📊 Cache Stats: {cache_info['total_cached']} charts cached | Hit rate: {cache_info['hit_rate']:.1f}%")
+    
     plt.close(fig)
 
 def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers):
-    cache_key = (str(group_label), str(group), tuple(map(str, microbes.index)))
+    # Generate consistent cache key including microbe data
+    cache_key = generate_cache_key("single", group_label, group, microbes.index.tolist(), microbes.values.tolist())
     
     # Check in-app cache
     if cache_key in chart_cache:
-        st.info(f"Loaded chart from cache")
+        cache_stats['hits'] += 1
+        st.success(f"✅ Chart loaded from cache (Hit #{cache_stats['hits']})")
         st.image(chart_cache[cache_key])
-        st.write(f"Cache status: HIT (persisted in session_state)")
+        
+        # Show cache statistics
+        cache_info = get_cache_info()
+        st.info(f"📊 Cache Stats: {cache_info['total_cached']} charts cached | Hit rate: {cache_info['hit_rate']:.1f}%")
         return
+    
+    # Chart not in cache - render new one
+    cache_stats['misses'] += 1
+    st.info(f"🔄 Rendering new chart (Miss #{cache_stats['misses']})...")
     
     # Render and cache
     top_ids = [microbe_numbers.get(microbe, microbe) for microbe in microbes.index]
     fig, ax = plt.subplots()
-    microbes.index = top_ids
-    microbes.plot(kind='bar', ax=ax, color='skyblue')
+    microbes_copy = microbes.copy()  # Don't modify original data
+    microbes_copy.index = top_ids
+    microbes_copy.plot(kind='bar', ax=ax, color='skyblue')
     ax.set_ylabel('Mean Abundance')
     ax.set_xlabel('Microbe (ID)')
     ax.set_title(f"{group}")
+    
     import io
     buf = io.BytesIO()
-    fig.savefig(buf, format='png')
+    fig.savefig(buf, format='png', bbox_inches='tight', dpi=150)
     buf.seek(0)
     
-    st.info(f"Rendered and cached chart")
-    st.image(buf)
+    # Store in cache
     chart_cache[cache_key] = buf
-    st.write(f"Cache status: MISS (new chart cached in session_state)")
+    cache_stats['total_charts'] = len(chart_cache)
+    
+    st.success(f"✅ Chart rendered and cached successfully!")
+    st.image(buf)
+    
+    # Show cache statistics
+    cache_info = get_cache_info()
+    st.info(f"📊 Cache Stats: {cache_info['total_cached']} charts cached | Hit rate: {cache_info['hit_rate']:.1f}%")
+    
     plt.close(fig)
 
 
@@ -352,3 +413,19 @@ st.header(f"Comparison Table Across {group_label}s")
 st.dataframe(comparison_df)
 
 st.info("Upload your own files or change grouping column and top N for different comparisons.")
+
+# --- Cache Management Sidebar ---
+st.sidebar.header("📊 Chart Cache Status")
+cache_info = get_cache_info()
+st.sidebar.metric("Cached Charts", cache_info['total_cached'])
+st.sidebar.metric("Cache Hits", cache_info['hits'])
+st.sidebar.metric("Cache Misses", cache_info['misses'])
+if cache_info['hits'] + cache_info['misses'] > 0:
+    st.sidebar.metric("Hit Rate", f"{cache_info['hit_rate']:.1f}%")
+
+# Clear cache button
+if st.sidebar.button("🗑️ Clear Chart Cache"):
+    st.session_state['chart_cache'] = {}
+    st.session_state['cache_stats'] = {'hits': 0, 'misses': 0, 'total_charts': 0}
+    st.sidebar.success("Cache cleared!")
+    st.experimental_rerun()
