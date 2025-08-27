@@ -227,17 +227,45 @@ def create_comparison_table(cached_combo_means, selected_groups, top_n):
     top_microbes = comparison_df.mean(axis=1).sort_values(ascending=False).head(top_n).index
     comparison_df = comparison_df.loc[top_microbes]
     comparison_df.index.name = 'Microbe'
-    return comparison_df
+    return comparison_df, top_microbes
 
-comparison_df = create_comparison_table(cached_group_combo_means[group_col], selected_groups, top_n)
+comparison_df, comparison_top_microbes = create_comparison_table(cached_group_combo_means[group_col], selected_groups, top_n)
+
+# --- Create unified microbe numbering system ---
+def create_unified_microbe_numbers(all_microbe_sets):
+    """Create a unified microbe numbering system across all charts."""
+    # Combine all unique microbes from different sources
+    all_unique_microbes = set()
+    for microbe_set in all_microbe_sets:
+        all_unique_microbes.update(microbe_set)
+    
+    # Sort for consistent numbering
+    sorted_microbes = sorted(list(all_unique_microbes))
+    return {microbe: f"M{idx+1}" for idx, microbe in enumerate(sorted_microbes)}
+
+# Get all microbe sets that will be used
+top_microbes, combo_comparison_df, id_mapping_df, _ = get_top_microbes_from_combo_cache(
+    cached_group_combo_means[group_col], selected_groups, top_n
+)
+
+# Create unified numbering system
+all_microbe_sets = [
+    comparison_top_microbes,  # from comparison table
+    id_mapping_df['Sequence'] if not id_mapping_df.empty else []  # from combo cache
+]
+microbe_numbers = create_unified_microbe_numbers(all_microbe_sets)
 
 # --- Update Comparison Table with Microbe Codes ---
 def update_comparison_table_with_codes(comparison_df, microbe_numbers):
     updated_comparison_df = comparison_df.copy()
-    updated_comparison_df.index = [microbe_numbers.get(microbe, microbe) for microbe in updated_comparison_df.index]
+    updated_comparison_df.index = [microbe_numbers.get(microbe, f"M{i+1}") for i, microbe in enumerate(updated_comparison_df.index)]
     return updated_comparison_df
 
 comparison_df = update_comparison_table_with_codes(comparison_df, microbe_numbers)
+
+# Update the ID mapping table with unified numbering
+if not id_mapping_df.empty:
+    id_mapping_df['Microbe ID'] = [microbe_numbers.get(seq, f"M{i+1}") for i, seq in enumerate(id_mapping_df['Sequence'])]
 
 # --- Chart rendering cache ---
 import io
@@ -356,7 +384,14 @@ def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers)
     cache_stats['misses'] += 1
     
     # Render and cache
-    top_ids = [microbe_numbers.get(microbe, microbe) for microbe in microbes.index]
+    top_ids = []
+    for i, microbe in enumerate(microbes.index):
+        if microbe in microbe_numbers:
+            top_ids.append(microbe_numbers[microbe])
+        else:
+            # Fallback to consistent numbering for any missing microbes
+            top_ids.append(f"M{i+1}")
+    
     fig, ax = plt.subplots()
     microbes_copy = microbes.copy()  # Don't modify original data
     microbes_copy.index = top_ids
