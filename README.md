@@ -20,7 +20,7 @@ This interactive dashboard allows researchers to explore microbiome data, compar
 - If you see errors or the app crashes, reload the page and try again.
 
 ### How file upload is disabled on Streamlit Cloud
-File uploaders are automatically hidden when the app detects it is running on Streamlit Cloud (using the `STREAMLIT_SERVER_HEADLESS` environment variable). No manual changes are needed.
+File uploaders are automatically hidden when the app detects it is running on Streamlit Cloud (using multiple environment variable checks for reliable detection). The app will show a clear message when file upload is disabled and display instructions for local usage. No manual changes are needed.
 
 ## Data Source & Citation
 

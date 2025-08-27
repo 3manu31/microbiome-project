@@ -16,7 +16,14 @@ import tempfile
 import itertools
 
 # Detect Streamlit Cloud environment
-is_cloud = os.environ.get("STREAMLIT_SERVER_HEADLESS", "false").lower() == "true"
+# Multiple checks to ensure reliable cloud detection
+is_cloud = (
+    os.environ.get("STREAMLIT_SERVER_HEADLESS", "false").lower() == "true" or
+    os.environ.get("STREAMLIT_SHARING", "false").lower() == "true" or 
+    "streamlit.io" in os.environ.get("STREAMLIT_SERVER_ADDRESS", "") or
+    os.environ.get("HOSTNAME", "").startswith("streamlit") or
+    "STREAMLIT_CLOUD" in os.environ
+)
 
 
 st.title("Microbiome Top Microbes Dashboard")
@@ -27,11 +34,25 @@ st.sidebar.warning("\n- The live demo may be slow or crash if toggling options t
 
 
 # --- File uploaders (only enabled for local runs) ---
+# Debug info for cloud detection (can be removed in production)
+if st.sidebar.checkbox("Show Environment Debug Info", value=False):
+    st.sidebar.write("Cloud Detection Variables:")
+    st.sidebar.write(f"STREAMLIT_SERVER_HEADLESS: {os.environ.get('STREAMLIT_SERVER_HEADLESS', 'Not set')}")
+    st.sidebar.write(f"STREAMLIT_SHARING: {os.environ.get('STREAMLIT_SHARING', 'Not set')}")
+    st.sidebar.write(f"STREAMLIT_SERVER_ADDRESS: {os.environ.get('STREAMLIT_SERVER_ADDRESS', 'Not set')}")
+    st.sidebar.write(f"HOSTNAME: {os.environ.get('HOSTNAME', 'Not set')}")
+    st.sidebar.write(f"STREAMLIT_CLOUD: {'STREAMLIT_CLOUD' in os.environ}")
+    st.sidebar.write(f"Detected as cloud: {is_cloud}")
+
 if not is_cloud:
     st.sidebar.header("Upload Your Files")
     uploaded_metadata = st.sidebar.file_uploader("Upload metadata file (.txt or .csv)", type=["txt", "csv"])
     uploaded_biom = st.sidebar.file_uploader("Upload biom file (.biom)", type=["biom"])
 else:
+    st.sidebar.header("Upload Your Files")
+    st.sidebar.info("🚫 File upload is disabled on Streamlit Cloud. Using demo files instead.")
+    st.sidebar.write("To upload your own files, run the app locally:")
+    st.sidebar.code("streamlit run streamlit_app.py")
     uploaded_metadata = None
     uploaded_biom = None
 
