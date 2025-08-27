@@ -32,6 +32,6 @@ A subset of microbiome data was obtained from the American Gut Project (Qiita St
 3. Upload your own files or use the provided example files
 
 ## About the Author
-This dashboard was developed by Emmanuel Gialitakis, a medical student with interests in computational biology, data science, research, and exploring the intersection of medicine & technology. He is passionate about making science accessible to all and welcomes users from all backgrounds.
+This dashboard was developed by Emmanuel Gialitakis, a medical student with interests in computational biology, data science, research, and exploring the intersection of medicine & technology.
 ## Contact
 For questions or collaboration, please reach out via GitHub or LinkedIn

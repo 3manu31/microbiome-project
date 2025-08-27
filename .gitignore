@@ -1,2 +1,14 @@
 # Ignore macOS system files
 .DS_Store
+
+# OAuth credentials and secrets - NEVER commit these
+client_secrets.json
+token.json
+credentials.json
+*.secret
+.env
+.env.*
+
+# User-specific credential directories
+.credentials/
+credentials/
