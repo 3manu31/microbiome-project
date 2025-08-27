@@ -34,16 +34,6 @@ st.sidebar.warning("\n- The live demo may be slow or crash if toggling options t
 
 
 # --- File uploaders (only enabled for local runs) ---
-# Debug info for cloud detection (can be removed in production)
-if st.sidebar.checkbox("Show Environment Debug Info", value=False):
-    st.sidebar.write("Cloud Detection Variables:")
-    st.sidebar.write(f"STREAMLIT_SERVER_HEADLESS: {os.environ.get('STREAMLIT_SERVER_HEADLESS', 'Not set')}")
-    st.sidebar.write(f"STREAMLIT_SHARING: {os.environ.get('STREAMLIT_SHARING', 'Not set')}")
-    st.sidebar.write(f"STREAMLIT_SERVER_ADDRESS: {os.environ.get('STREAMLIT_SERVER_ADDRESS', 'Not set')}")
-    st.sidebar.write(f"HOSTNAME: {os.environ.get('HOSTNAME', 'Not set')}")
-    st.sidebar.write(f"STREAMLIT_CLOUD: {'STREAMLIT_CLOUD' in os.environ}")
-    st.sidebar.write(f"Detected as cloud: {is_cloud}")
-
 if not is_cloud:
     st.sidebar.header("Upload Your Files")
     uploaded_metadata = st.sidebar.file_uploader("Upload metadata file (.txt or .csv)", type=["txt", "csv"])
@@ -322,17 +312,11 @@ def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
     # Check in-app cache
     if cache_key in chart_cache:
         cache_stats['hits'] += 1
-        st.success(f"✅ Chart loaded from cache (Hit #{cache_stats['hits']})")
         st.image(chart_cache[cache_key])
-        
-        # Show cache statistics
-        cache_info = get_cache_info()
-        st.info(f"📊 Cache Stats: {cache_info['total_cached']} charts cached | Hit rate: {cache_info['hit_rate']:.1f}%")
         return
     
     # Chart not in cache - render new one
     cache_stats['misses'] += 1
-    st.info(f"🔄 Rendering new chart (Miss #{cache_stats['misses']})...")
     
     # Render and cache
     fig, ax = plt.subplots(figsize=(max(8, len(comparison_df.index)*0.5), 6))
@@ -355,13 +339,7 @@ def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
     chart_cache[cache_key] = buf
     cache_stats['total_charts'] = len(chart_cache)
     
-    st.success(f"✅ Chart rendered and cached successfully!")
     st.image(buf)
-    
-    # Show cache statistics
-    cache_info = get_cache_info()
-    st.info(f"📊 Cache Stats: {cache_info['total_cached']} charts cached | Hit rate: {cache_info['hit_rate']:.1f}%")
-    
     plt.close(fig)
 
 def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers):
@@ -371,17 +349,11 @@ def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers)
     # Check in-app cache
     if cache_key in chart_cache:
         cache_stats['hits'] += 1
-        st.success(f"✅ Chart loaded from cache (Hit #{cache_stats['hits']})")
         st.image(chart_cache[cache_key])
-        
-        # Show cache statistics
-        cache_info = get_cache_info()
-        st.info(f"📊 Cache Stats: {cache_info['total_cached']} charts cached | Hit rate: {cache_info['hit_rate']:.1f}%")
         return
     
     # Chart not in cache - render new one
     cache_stats['misses'] += 1
-    st.info(f"🔄 Rendering new chart (Miss #{cache_stats['misses']})...")
     
     # Render and cache
     top_ids = [microbe_numbers.get(microbe, microbe) for microbe in microbes.index]
@@ -402,13 +374,7 @@ def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers)
     chart_cache[cache_key] = buf
     cache_stats['total_charts'] = len(chart_cache)
     
-    st.success(f"✅ Chart rendered and cached successfully!")
     st.image(buf)
-    
-    # Show cache statistics
-    cache_info = get_cache_info()
-    st.info(f"📊 Cache Stats: {cache_info['total_cached']} charts cached | Hit rate: {cache_info['hit_rate']:.1f}%")
-    
     plt.close(fig)
 
 
@@ -434,19 +400,3 @@ st.header(f"Comparison Table Across {group_label}s")
 st.dataframe(comparison_df)
 
 st.info("Upload your own files or change grouping column and top N for different comparisons.")
-
-# --- Cache Management Sidebar ---
-st.sidebar.header("📊 Chart Cache Status")
-cache_info = get_cache_info()
-st.sidebar.metric("Cached Charts", cache_info['total_cached'])
-st.sidebar.metric("Cache Hits", cache_info['hits'])
-st.sidebar.metric("Cache Misses", cache_info['misses'])
-if cache_info['hits'] + cache_info['misses'] > 0:
-    st.sidebar.metric("Hit Rate", f"{cache_info['hit_rate']:.1f}%")
-
-# Clear cache button
-if st.sidebar.button("🗑️ Clear Chart Cache"):
-    st.session_state['chart_cache'] = {}
-    st.session_state['cache_stats'] = {'hits': 0, 'misses': 0, 'total_charts': 0}
-    st.sidebar.success("Cache cleared!")
-    st.experimental_rerun()
