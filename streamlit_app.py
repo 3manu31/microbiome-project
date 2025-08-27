@@ -15,41 +15,6 @@ import os
 import tempfile
 import itertools
 
-SCOPES = ['https://www.googleapis.com/auth/drive.file']
-
-# Remove old authenticate_google_drive and GOOGLE_OAUTH logic
-
-# Supabase Storage integration
-from supabase import create_client, Client
-
-SUPABASE_URL = st.secrets["SUPABASE_URL"] if "SUPABASE_URL" in st.secrets else os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = st.secrets["SUPABASE_KEY"] if "SUPABASE_KEY" in st.secrets else os.environ.get("SUPABASE_KEY")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-
-# Helper to upload chart image to Supabase Storage
-def upload_chart_to_supabase(chart_key, fig, bucket="charts"):
-    import io
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png')
-    buf.seek(0)
-    data = buf.read()
-    try:
-        res = supabase.storage.from_(bucket).upload(f"{chart_key}.png", data, {"content-type": "image/png"})
-        return res
-    except Exception as e:
-        return {"error": str(e)}
-
-# Helper to download chart image from Supabase Storage
-def download_chart_from_supabase(chart_key, bucket="charts"):
-    res = supabase.storage.from_(bucket).download(f"{chart_key}.png")
-    if res:
-        import io
-        buf = io.BytesIO(res)
-        buf.seek(0)
-        return buf
-    return None
-
 # Detect Streamlit Cloud environment
 is_cloud = os.environ.get("STREAMLIT_SERVER_HEADLESS", "false").lower() == "true"
 
@@ -302,29 +267,16 @@ def create_comparison_table(cached_combo_means, selected_groups, top_n):
     comparison_df.index.name = 'Microbe'
     return comparison_df
 
-def render_grouped_bar_chart(comparison_df, group_label, selected_groups, bucket="charts"):
+def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
     cache_key = (str(group_label), tuple(map(str, sorted(selected_groups))), tuple(map(str, comparison_df.index)))
-    chart_key = f"grouped_{group_label}_{'_'.join(map(str, sorted(selected_groups)))}_{'_'.join(map(str, comparison_df.index))}"
-    cache_status = None
+    
     # Check in-app cache
     if cache_key in chart_cache:
-        cache_status = "hit"
-        st.info(f"Loaded chart from cache: {chart_key}")
+        st.info(f"Loaded chart from cache")
         st.image(chart_cache[cache_key])
         st.write(f"Cache status: HIT (persisted in session_state)")
         return
-    # Check Supabase Storage
-    try:
-        buf = download_chart_from_supabase(chart_key, bucket)
-        if buf:
-            cache_status = "supabase"
-            st.info(f"Downloaded chart from Supabase Storage: {chart_key}")
-            st.image(buf)
-            chart_cache[cache_key] = buf
-            st.write(f"Cache status: MISS (loaded from Supabase, now cached in session_state)")
-            return
-    except Exception as e:
-        st.error(f"Error downloading chart from Supabase: {e}")
+    
     # Render and cache
     fig, ax = plt.subplots(figsize=(max(8, len(comparison_df.index)*0.5), 6))
     comparison_df.plot(kind='bar', ax=ax, width=0.8)
@@ -336,48 +288,23 @@ def render_grouped_bar_chart(comparison_df, group_label, selected_groups, bucket
     buf = io.BytesIO()
     fig.savefig(buf, format='png')
     buf.seek(0)
-    cache_status = "miss"
-    st.info(f"Rendered and cached chart: {chart_key}")
+    
+    st.info(f"Rendered and cached chart")
     st.image(buf)
     chart_cache[cache_key] = buf
     st.write(f"Cache status: MISS (new chart cached in session_state)")
-    st.info(f"Attempting to upload chart to Supabase Storage: {chart_key}")
-    try:
-        res = upload_chart_to_supabase(chart_key, fig, bucket)
-        st.info(f"Supabase upload result: {res}")
-        if hasattr(res, 'status_code') and res.status_code == 200:
-            st.success(f"Uploaded chart to Supabase Storage: {chart_key}")
-        elif isinstance(res, dict) and res.get('error'):
-            st.error(f"Supabase upload error: {res['error']}")
-        else:
-            st.info(f"Supabase upload response: {res}")
-    except Exception as e:
-        st.error(f"Error uploading chart to Supabase: {e}")
     plt.close(fig)
 
-def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers, bucket="charts"):
+def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers):
     cache_key = (str(group_label), str(group), tuple(map(str, microbes.index)))
-    chart_key = f"single_{group_label}_{group}_{'_'.join(map(str, microbes.index))}"
-    cache_status = None
+    
     # Check in-app cache
     if cache_key in chart_cache:
-        cache_status = "hit"
-        st.info(f"Loaded chart from cache: {chart_key}")
+        st.info(f"Loaded chart from cache")
         st.image(chart_cache[cache_key])
         st.write(f"Cache status: HIT (persisted in session_state)")
         return
-    # Check Supabase Storage
-    try:
-        buf = download_chart_from_supabase(chart_key, bucket)
-        if buf:
-            cache_status = "supabase"
-            st.info(f"Downloaded chart from Supabase Storage: {chart_key}")
-            st.image(buf)
-            chart_cache[cache_key] = buf
-            st.write(f"Cache status: MISS (loaded from Supabase, now cached in session_state)")
-            return
-    except Exception as e:
-        st.error(f"Error downloading chart from Supabase: {e}")
+    
     # Render and cache
     top_ids = [microbe_numbers.get(microbe, microbe) for microbe in microbes.index]
     fig, ax = plt.subplots()
@@ -390,23 +317,11 @@ def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers,
     buf = io.BytesIO()
     fig.savefig(buf, format='png')
     buf.seek(0)
-    cache_status = "miss"
-    st.info(f"Rendered and cached chart: {chart_key}")
+    
+    st.info(f"Rendered and cached chart")
     st.image(buf)
     chart_cache[cache_key] = buf
     st.write(f"Cache status: MISS (new chart cached in session_state)")
-    st.info(f"Attempting to upload chart to Supabase Storage: {chart_key}")
-    try:
-        res = upload_chart_to_supabase(chart_key, fig, bucket)
-        st.info(f"Supabase upload result: {res}")
-        if hasattr(res, 'status_code') and res.status_code == 200:
-            st.success(f"Uploaded chart to Supabase Storage: {chart_key}")
-        elif isinstance(res, dict) and res.get('error'):
-            st.error(f"Supabase upload error: {res['error']}")
-        else:
-            st.info(f"Supabase upload response: {res}")
-    except Exception as e:
-        st.error(f"Error uploading chart to Supabase: {e}")
     plt.close(fig)
 
 
@@ -432,9 +347,3 @@ st.header(f"Comparison Table Across {group_label}s")
 st.dataframe(comparison_df)
 
 st.info("Upload your own files or change grouping column and top N for different comparisons.")
-
-st.sidebar.header("Supabase Storage Integration")
-if SUPABASE_URL and SUPABASE_KEY:
-    st.sidebar.success("Supabase Storage access enabled.")
-else:
-    st.sidebar.error("Supabase Storage access not available. Please check your credentials.")
