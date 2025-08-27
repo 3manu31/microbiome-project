@@ -284,9 +284,14 @@ def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
     ax.set_xlabel('Microbe')
     ax.set_title(f"Comparison Across {group_label}s")
     ax.legend(title=group_label, bbox_to_anchor=(1.05, 1), loc='upper left')
+    
+    # Adjust layout to prevent legend cutoff
+    plt.tight_layout()
+    plt.subplots_adjust(right=0.75)  # Make room for legend on the right
+    
     import io
     buf = io.BytesIO()
-    fig.savefig(buf, format='png')
+    fig.savefig(buf, format='png', bbox_inches='tight', dpi=150)
     buf.seek(0)
     
     st.info(f"Rendered and cached chart")
