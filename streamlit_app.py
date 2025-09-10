@@ -4,8 +4,6 @@ Streamlit Microbiome Top Microbes Dashboard
 This app lets users select a grouping column (healthy, mental illness, sex, sample type) and visualizes the top microbes per group interactively.
 """
 
-
-
 import streamlit as st
 import pandas as pd
 from biom import load_table
@@ -14,6 +12,37 @@ import matplotlib.pyplot as plt
 import os
 import tempfile
 import itertools
+import io
+import hashlib
+import base64
+
+# Supabase integration for cloud caching
+try:
+    from supabase import create_client, Client
+    SUPABASE_AVAILABLE = True
+except ImportError:
+    SUPABASE_AVAILABLE = False
+
+# Supabase configuration from Streamlit secrets (for cloud deployment only)
+def get_supabase_client():
+    """Initialize Supabase client if credentials are available (cloud only)."""
+    if not SUPABASE_AVAILABLE:
+        return None
+    
+    # Only try to connect to Supabase in cloud environment
+    if not is_cloud:
+        return None
+    
+    try:
+        supabase_url = st.secrets.get("SUPABASE_URL")
+        supabase_key = st.secrets.get("SUPABASE_KEY")
+        
+        if supabase_url and supabase_key:
+            return create_client(supabase_url, supabase_key)
+    except Exception as e:
+        st.warning(f"Supabase connection failed: {e}")
+    
+    return None
 
 # Detect Streamlit Cloud environment
 # Multiple checks to ensure reliable cloud detection
@@ -28,9 +57,53 @@ is_cloud = (
 
 st.title("Microbiome Top Microbes Dashboard")
 
+# Initialize Supabase client early
+supabase_client = get_supabase_client()
+
 # --- Limitations & Warnings ---
 st.sidebar.header("Limitations & Warnings")
 st.sidebar.warning("\n- The live demo may be slow or crash if toggling options too quickly due to Streamlit Cloud resource limits.\n- Please toggle one option at a time and wait for the page to load before toggling again.\n- File upload is disabled on the cloud demo; to use this feature, install and run the app locally.\n- If you see errors or the app crashes, reload the page and try again.\n")
+
+# Initialize cache system early
+if 'chart_cache' not in st.session_state:
+    st.session_state['chart_cache'] = {}
+if 'cache_stats' not in st.session_state:
+    st.session_state['cache_stats'] = {'hits': 0, 'misses': 0, 'supabase_hits': 0, 'supabase_misses': 0}
+
+chart_cache = st.session_state['chart_cache']
+cache_stats = st.session_state['cache_stats']
+
+def get_cache_info():
+    """Get current cache statistics."""
+    total_charts = len(chart_cache)
+    hits = cache_stats['hits']
+    misses = cache_stats['misses']
+    supabase_hits = cache_stats['supabase_hits']
+    supabase_misses = cache_stats['supabase_misses']
+    hit_rate = (hits / (hits + misses)) * 100 if (hits + misses) > 0 else 0
+    return {
+        'total_cached': total_charts,
+        'hits': hits,
+        'misses': misses,
+        'supabase_hits': supabase_hits,
+        'supabase_misses': supabase_misses,
+        'hit_rate': hit_rate
+    }
+
+# --- Cache Statistics ---
+if supabase_client:
+    st.sidebar.header("Cache Statistics")
+    cache_info = get_cache_info()
+    with st.sidebar.expander("View cache performance"):
+        st.write(f"**Local Cache:** {cache_info['hits']} hits, {cache_info['misses']} misses")
+        st.write(f"**Supabase Cache:** {cache_info['supabase_hits']} hits, {cache_info['supabase_misses']} misses")
+        st.write(f"**Hit Rate:** {cache_info['hit_rate']:.1f}%")
+        st.write(f"**Total Cached Charts:** {cache_info['total_cached']}")
+else:
+    if is_cloud:
+        st.sidebar.info("💾 Supabase caching unavailable - using local cache only")
+    else:
+        st.sidebar.info("💻 Local mode - using in-memory cache only")
 
 
 # --- File uploaders (only enabled for local runs) ---
@@ -267,38 +340,80 @@ comparison_df = update_comparison_table_with_codes(comparison_df, microbe_number
 if not id_mapping_df.empty:
     id_mapping_df['Microbe ID'] = [microbe_numbers.get(seq, f"M{i+1}") for i, seq in enumerate(id_mapping_df['Sequence'])]
 
-# --- Chart rendering cache ---
-import io
-import hashlib
-
-# Initialize persistent chart cache in session state
-if 'chart_cache' not in st.session_state:
-    st.session_state['chart_cache'] = {}
-if 'cache_stats' not in st.session_state:
-    st.session_state['cache_stats'] = {'hits': 0, 'misses': 0, 'total_charts': 0}
-
-chart_cache = st.session_state['chart_cache']
-cache_stats = st.session_state['cache_stats']
+# --- Supabase caching functions ---
 
 def generate_cache_key(*args):
     """Generate a consistent, hashable cache key from arguments."""
-    # Convert all arguments to strings and create a consistent key
     key_string = str(args)
-    # Use hash for shorter keys while maintaining uniqueness
     return hashlib.md5(key_string.encode()).hexdigest()
 
-def get_cache_info():
-    """Get current cache statistics."""
-    total_charts = len(chart_cache)
-    hits = cache_stats['hits']
-    misses = cache_stats['misses']
-    hit_rate = (hits / (hits + misses)) * 100 if (hits + misses) > 0 else 0
-    return {
-        'total_cached': total_charts,
-        'hits': hits,
-        'misses': misses,
-        'hit_rate': hit_rate
-    }
+def get_chart_from_supabase(cache_key):
+    """Retrieve chart from Supabase storage."""
+    if not supabase_client:
+        return None
+    
+    try:
+        # Try to download the chart from Supabase storage
+        response = supabase_client.storage.from_("chart_cache").download(f"{cache_key}.png")
+        if response:
+            cache_stats['supabase_hits'] += 1
+            return io.BytesIO(response)
+    except Exception as e:
+        cache_stats['supabase_misses'] += 1
+        # Chart not found in Supabase or error occurred
+        pass
+    
+    return None
+
+def save_chart_to_supabase(cache_key, chart_buffer):
+    """Save chart to Supabase storage."""
+    if not supabase_client:
+        return False
+    
+    try:
+        # Upload chart to Supabase storage
+        chart_buffer.seek(0)
+        response = supabase_client.storage.from_("chart_cache").upload(
+            f"{cache_key}.png", 
+            chart_buffer.getvalue(),
+            file_options={"content-type": "image/png", "upsert": "true"}
+        )
+        return True
+    except Exception as e:
+        st.warning(f"Failed to save chart to Supabase: {e}")
+        return False
+
+def get_cached_chart(cache_key):
+    """
+    Get chart from cache with the following priority:
+    1. Streamlit session state cache (fastest)
+    2. Supabase storage (persistent)
+    3. Return None if not found anywhere
+    """
+    # Check local cache first
+    if cache_key in chart_cache:
+        cache_stats['hits'] += 1
+        return chart_cache[cache_key]
+    
+    # Check Supabase cache
+    supabase_chart = get_chart_from_supabase(cache_key)
+    if supabase_chart:
+        # Store in local cache for faster future access
+        chart_cache[cache_key] = supabase_chart
+        return supabase_chart
+    
+    # Not found anywhere
+    cache_stats['misses'] += 1
+    return None
+
+def save_chart_to_cache(cache_key, chart_buffer):
+    """Save chart to both local cache and Supabase."""
+    # Save to local cache
+    chart_cache[cache_key] = chart_buffer
+    
+    # Save to Supabase for persistence
+    if supabase_client:
+        save_chart_to_supabase(cache_key, chart_buffer)
 
 def get_top_microbes_from_combo_cache(cached_combo_means, selected_groups, top_n):
     # Use frozenset for lookup
@@ -337,16 +452,13 @@ def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
     # Generate consistent cache key
     cache_key = generate_cache_key("grouped", group_label, sorted(selected_groups), comparison_df.index.tolist(), comparison_df.shape)
     
-    # Check in-app cache
-    if cache_key in chart_cache:
-        cache_stats['hits'] += 1
-        st.image(chart_cache[cache_key])
+    # Try to get cached chart
+    cached_chart = get_cached_chart(cache_key)
+    if cached_chart:
+        st.image(cached_chart)
         return
     
     # Chart not in cache - render new one
-    cache_stats['misses'] += 1
-    
-    # Render and cache
     fig, ax = plt.subplots(figsize=(max(8, len(comparison_df.index)*0.5), 6))
     comparison_df.plot(kind='bar', ax=ax, width=0.8)
     ax.set_ylabel('Mean Abundance')
@@ -358,14 +470,13 @@ def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
     plt.tight_layout()
     plt.subplots_adjust(right=0.75)  # Make room for legend on the right
     
-    import io
+    # Save chart to buffer
     buf = io.BytesIO()
     fig.savefig(buf, format='png', bbox_inches='tight', dpi=150)
     buf.seek(0)
     
-    # Store in cache
-    chart_cache[cache_key] = buf
-    cache_stats['total_charts'] = len(chart_cache)
+    # Save to both caches
+    save_chart_to_cache(cache_key, buf)
     
     st.image(buf)
     plt.close(fig)
@@ -374,16 +485,13 @@ def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers)
     # Generate consistent cache key including microbe data
     cache_key = generate_cache_key("single", group_label, group, microbes.index.tolist(), microbes.values.tolist())
     
-    # Check in-app cache
-    if cache_key in chart_cache:
-        cache_stats['hits'] += 1
-        st.image(chart_cache[cache_key])
+    # Try to get cached chart
+    cached_chart = get_cached_chart(cache_key)
+    if cached_chart:
+        st.image(cached_chart)
         return
     
     # Chart not in cache - render new one
-    cache_stats['misses'] += 1
-    
-    # Render and cache
     top_ids = []
     for i, microbe in enumerate(microbes.index):
         if microbe in microbe_numbers:
@@ -400,14 +508,13 @@ def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers)
     ax.set_xlabel('Microbe (ID)')
     ax.set_title(f"{group}")
     
-    import io
+    # Save chart to buffer
     buf = io.BytesIO()
     fig.savefig(buf, format='png', bbox_inches='tight', dpi=150)
     buf.seek(0)
     
-    # Store in cache
-    chart_cache[cache_key] = buf
-    cache_stats['total_charts'] = len(chart_cache)
+    # Save to both caches
+    save_chart_to_cache(cache_key, buf)
     
     st.image(buf)
     plt.close(fig)
