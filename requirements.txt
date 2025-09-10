@@ -2,4 +2,4 @@ streamlit==1.48.1
 pandas
 matplotlib
 biom-format
-supabase
+boto3

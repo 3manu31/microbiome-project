@@ -16,17 +16,18 @@ import io
 import hashlib
 import base64
 
-# Supabase integration for cloud caching
+# Supabase Storage integration for cloud caching using S3-compatible API
 try:
-    from supabase import create_client, Client
-    SUPABASE_AVAILABLE = True
+    import boto3
+    from botocore.exceptions import ClientError
+    S3_AVAILABLE = True
 except ImportError:
-    SUPABASE_AVAILABLE = False
+    S3_AVAILABLE = False
 
-# Supabase configuration from Streamlit secrets (for cloud deployment only)
-def get_supabase_client():
-    """Initialize Supabase client if credentials are available (cloud only)."""
-    if not SUPABASE_AVAILABLE:
+# Supabase S3-compatible configuration (for cloud deployment only)
+def get_s3_client():
+    """Initialize S3-compatible client for Supabase Storage using access keys."""
+    if not S3_AVAILABLE:
         return None
     
     # Only try to connect to Supabase in cloud environment
@@ -35,12 +36,23 @@ def get_supabase_client():
     
     try:
         supabase_url = st.secrets.get("SUPABASE_URL")
-        supabase_key = st.secrets.get("SUPABASE_KEY")
+        access_key_id = st.secrets.get("ACCESS_KEY_ID")
+        secret_access_key = st.secrets.get("SECRET_ACCESS_KEY")
         
-        if supabase_url and supabase_key:
-            return create_client(supabase_url, supabase_key)
+        if supabase_url and access_key_id and secret_access_key:
+            # Extract project reference from URL for S3 endpoint
+            project_ref = supabase_url.split("//")[1].split(".")[0]
+            s3_endpoint = f"https://{project_ref}.supabase.co/storage/v1/s3"
+            
+            return boto3.client(
+                's3',
+                endpoint_url=s3_endpoint,
+                aws_access_key_id=access_key_id,
+                aws_secret_access_key=secret_access_key,
+                region_name='us-east-1'  # Required but ignored by Supabase
+            )
     except Exception as e:
-        st.warning(f"Supabase connection failed: {e}")
+        st.warning(f"S3 connection failed: {e}")
     
     return None
 
@@ -57,8 +69,8 @@ is_cloud = (
 
 st.title("Microbiome Top Microbes Dashboard")
 
-# Initialize Supabase client early
-supabase_client = get_supabase_client()
+# Initialize S3 client early
+s3_client = get_s3_client()
 
 # --- Limitations & Warnings ---
 st.sidebar.header("Limitations & Warnings")
@@ -91,7 +103,7 @@ def get_cache_info():
     }
 
 # --- Cache Statistics ---
-if supabase_client:
+if s3_client:
     st.sidebar.header("Cache Statistics")
     cache_info = get_cache_info()
     with st.sidebar.expander("View cache performance"):
@@ -288,10 +300,28 @@ top_microbes, comparison_df, id_mapping_df, microbe_numbers = get_top_microbes_f
 
 
 
+# --- Helper Functions ---
+
+def standardize_group_order(groups):
+    """
+    Standardize the order of groups to ensure consistent chart rendering and caching.
+    Sort alphabetically (a-z, then 0-9), with "not provided" always at the end.
+    """
+    def sort_key(item):
+        item_str = str(item).lower()
+        if item_str == "not provided":
+            return "zzz_not_provided"  # Ensures it comes last
+        return item_str
+    
+    return sorted(groups, key=sort_key)
+
 # --- Enhanced Comparison Table ---
 def create_comparison_table(cached_combo_means, selected_groups, top_n):
+    # Standardize group order for consistent table creation
+    standardized_groups = standardize_group_order(selected_groups)
+    
     comparison_data = {}
-    for group in selected_groups:
+    for group in standardized_groups:
         group_key = frozenset([group])
         mean_abundance = cached_combo_means.get(group_key, pd.Series(dtype='float64'))
         comparison_data[group] = mean_abundance
@@ -344,39 +374,59 @@ if not id_mapping_df.empty:
 
 def generate_cache_key(*args):
     """Generate a consistent, hashable cache key from arguments."""
-    key_string = str(args)
-    return hashlib.md5(key_string.encode()).hexdigest()
+    # Convert all arguments to strings, ensuring consistent ordering for lists/dicts
+    processed_args = []
+    for arg in args:
+        if isinstance(arg, list):
+            processed_args.append(str(sorted(arg) if all(isinstance(x, (str, int, float)) for x in arg) else arg))
+        elif isinstance(arg, dict):
+            processed_args.append(str(sorted(arg.items())))
+        else:
+            processed_args.append(str(arg))
+    
+    key_string = '|'.join(processed_args)
+    cache_key = hashlib.md5(key_string.encode()).hexdigest()
+    
+    # Debug: show cache key generation in sidebar (only in cloud for debugging)
+    if is_cloud and st.secrets.get("DEBUG_CACHE", False):
+        st.sidebar.write(f"🔑 Cache key: `{cache_key[:8]}...`")
+    
+    return cache_key
 
 def get_chart_from_supabase(cache_key):
-    """Retrieve chart from Supabase storage."""
-    if not supabase_client:
+    """Retrieve chart from Supabase storage using S3-compatible API."""
+    if not s3_client:
         return None
     
     try:
         # Try to download the chart from Supabase storage
-        response = supabase_client.storage.from_("chart_cache").download(f"{cache_key}.png")
+        response = s3_client.get_object(Bucket='chart_cache', Key=f"{cache_key}.png")
         if response:
             cache_stats['supabase_hits'] += 1
-            return io.BytesIO(response)
-    except Exception as e:
+            return io.BytesIO(response['Body'].read())
+    except ClientError as e:
         cache_stats['supabase_misses'] += 1
         # Chart not found in Supabase or error occurred
+        pass
+    except Exception as e:
+        cache_stats['supabase_misses'] += 1
         pass
     
     return None
 
 def save_chart_to_supabase(cache_key, chart_buffer):
-    """Save chart to Supabase storage."""
-    if not supabase_client:
+    """Save chart to Supabase storage using S3-compatible API."""
+    if not s3_client:
         return False
     
     try:
         # Upload chart to Supabase storage
         chart_buffer.seek(0)
-        response = supabase_client.storage.from_("chart_cache").upload(
-            f"{cache_key}.png", 
-            chart_buffer.getvalue(),
-            file_options={"content-type": "image/png", "upsert": "true"}
+        s3_client.put_object(
+            Bucket='chart_cache',
+            Key=f"{cache_key}.png",
+            Body=chart_buffer.getvalue(),
+            ContentType='image/png'
         )
         return True
     except Exception as e:
@@ -390,17 +440,30 @@ def get_cached_chart(cache_key):
     2. Supabase storage (persistent)
     3. Return None if not found anywhere
     """
+    # Debug info
+    debug_cache = is_cloud and st.secrets.get("DEBUG_CACHE", False)
+    
     # Check local cache first
     if cache_key in chart_cache:
         cache_stats['hits'] += 1
+        if debug_cache:
+            st.sidebar.success(f"✅ Local cache HIT for `{cache_key[:8]}...`")
         return chart_cache[cache_key]
+    
+    if debug_cache:
+        st.sidebar.warning(f"❌ Local cache MISS for `{cache_key[:8]}...`")
     
     # Check Supabase cache
     supabase_chart = get_chart_from_supabase(cache_key)
     if supabase_chart:
         # Store in local cache for faster future access
         chart_cache[cache_key] = supabase_chart
+        if debug_cache:
+            st.sidebar.success(f"✅ Supabase cache HIT for `{cache_key[:8]}...`")
         return supabase_chart
+    
+    if debug_cache:
+        st.sidebar.warning(f"❌ Supabase cache MISS for `{cache_key[:8]}...`")
     
     # Not found anywhere
     cache_stats['misses'] += 1
@@ -408,12 +471,21 @@ def get_cached_chart(cache_key):
 
 def save_chart_to_cache(cache_key, chart_buffer):
     """Save chart to both local cache and Supabase."""
+    debug_cache = is_cloud and st.secrets.get("DEBUG_CACHE", False)
+    
     # Save to local cache
     chart_cache[cache_key] = chart_buffer
+    if debug_cache:
+        st.sidebar.info(f"💾 Saved to local cache: `{cache_key[:8]}...`")
     
     # Save to Supabase for persistence
-    if supabase_client:
-        save_chart_to_supabase(cache_key, chart_buffer)
+    if s3_client:
+        success = save_chart_to_supabase(cache_key, chart_buffer)
+        if debug_cache:
+            if success:
+                st.sidebar.info(f"☁️ Saved to Supabase: `{cache_key[:8]}...`")
+            else:
+                st.sidebar.error(f"❌ Failed to save to Supabase: `{cache_key[:8]}...`")
 
 def get_top_microbes_from_combo_cache(cached_combo_means, selected_groups, top_n):
     # Use frozenset for lookup
@@ -435,22 +507,26 @@ def get_top_microbes_from_combo_cache(cached_combo_means, selected_groups, top_n
     top_microbes = {"Combo": top}
     return top_microbes, comparison_df, id_mapping_df, microbe_numbers
 
-def create_comparison_table(cached_combo_means, selected_groups, top_n):
-    comparison_data = {}
-    for group in selected_groups:
-        group_key = frozenset([group])
-        mean_abundance = cached_combo_means.get(group_key, pd.Series(dtype='float64'))
-        comparison_data[group] = mean_abundance
-
-    comparison_df = pd.DataFrame(comparison_data)
-    top_microbes = comparison_df.mean(axis=1).sort_values(ascending=False).head(top_n).index
-    comparison_df = comparison_df.loc[top_microbes]
-    comparison_df.index.name = 'Microbe'
-    return comparison_df
-
 def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
-    # Generate consistent cache key
-    cache_key = generate_cache_key("grouped", group_label, sorted(selected_groups), comparison_df.index.tolist(), comparison_df.shape)
+    # Standardize group order for consistent rendering and caching
+    standardized_groups = standardize_group_order(selected_groups)
+    
+    # Reorder DataFrame columns to match standardized order
+    standardized_df = comparison_df.copy()
+    if len(standardized_df.columns) > 1:  # Only reorder if multiple columns
+        available_cols = [col for col in standardized_groups if col in standardized_df.columns]
+        standardized_df = standardized_df[available_cols]
+    
+    # Generate consistent cache key including data shape and content
+    cache_key = generate_cache_key(
+        "grouped", 
+        group_label, 
+        standardized_groups, 
+        standardized_df.index.tolist(), 
+        standardized_df.columns.tolist(),
+        standardized_df.shape,
+        str(standardized_df.values.tobytes())[:50]  # Sample of data for uniqueness
+    )
     
     # Try to get cached chart
     cached_chart = get_cached_chart(cache_key)
@@ -459,8 +535,8 @@ def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
         return
     
     # Chart not in cache - render new one
-    fig, ax = plt.subplots(figsize=(max(8, len(comparison_df.index)*0.5), 6))
-    comparison_df.plot(kind='bar', ax=ax, width=0.8)
+    fig, ax = plt.subplots(figsize=(max(8, len(standardized_df.index)*0.5), 6))
+    standardized_df.plot(kind='bar', ax=ax, width=0.8)
     ax.set_ylabel('Mean Abundance')
     ax.set_xlabel('Microbe')
     ax.set_title(f"Comparison Across {group_label}s")
@@ -482,8 +558,15 @@ def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
     plt.close(fig)
 
 def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers):
-    # Generate consistent cache key including microbe data
-    cache_key = generate_cache_key("single", group_label, group, microbes.index.tolist(), microbes.values.tolist())
+    # Generate consistent cache key including all relevant data
+    cache_key = generate_cache_key(
+        "single", 
+        group_label, 
+        group, 
+        microbes.index.tolist(), 
+        microbes.values.tolist(),
+        str(microbe_numbers)
+    )
     
     # Try to get cached chart
     cached_chart = get_cached_chart(cache_key)
@@ -522,16 +605,22 @@ def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers)
 
 
 st.header(f"Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s")
-if not comparison_df.empty:
+if group_col == "age_cat" and len(selected_groups) < 3:
+    st.warning("Please select at least 3 age categories to render the combined chart.")
+elif not comparison_df.empty:
     render_grouped_bar_chart(comparison_df, group_label, selected_groups)
 else:
     st.warning("No data available for the selected groups.")
 
 st.header(f"Top {top_n} Microbes per {group_label}")
-for group, microbes in top_microbes.items():
-    st.subheader(f"{group_label if group_col == group else group}")
-    render_single_group_bar_chart(microbes, group, group_label, microbe_numbers)
-    st.write(microbes)
+# Render individual charts in standardized order
+standardized_chart_groups = standardize_group_order(top_microbes.keys())
+for group in standardized_chart_groups:
+    if group in top_microbes:
+        microbes = top_microbes[group]
+        st.subheader(f"{group_label if group_col == group else group}")
+        render_single_group_bar_chart(microbes, group, group_label, microbe_numbers)
+        st.write(microbes)
 
 # Microbe ID mapping table
 st.header("Microbe ID Mapping Table")
