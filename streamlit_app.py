@@ -1,7 +1,7 @@
 """
 Streamlit Microbiome Top Microbes Dashboard
 
-This app lets users select a grouping column (healthy, mental illness, sex, sample type) and visualizes the top microbes per group interactively.
+This app lets users select a grouping # --- File Upload# --- File Upload Section ---File Upload Section ---ex, sample type) and visualizes the top microbes per group interactively.
 """
 
 import streamlit as st
@@ -76,6 +76,10 @@ s3_client = get_s3_client()
 st.sidebar.header("Limitations & Warnings")
 st.sidebar.warning("\n- The live demo may be slow or crash if toggling options too quickly due to Streamlit Cloud resource limits.\n- Please toggle one option at a time and wait for the page to load before toggling again.\n- File upload is disabled on the cloud demo; to use this feature, install and run the app locally.\n- If you see errors or the app crashes, reload the page and try again.\n")
 
+# Copyright and author notice
+st.sidebar.markdown("<hr style='margin-top:2em;margin-bottom:0.5em;'>", unsafe_allow_html=True)
+st.sidebar.markdown("<div style='text-align:center; color:gray; font-size:0.9em;'>© 2025 Emmanuel Gialitakis | Apache 2.0 License</div>", unsafe_allow_html=True)
+
 # Initialize cache system early
 if 'chart_cache' not in st.session_state:
     st.session_state['chart_cache'] = {}
@@ -85,39 +89,7 @@ if 'cache_stats' not in st.session_state:
 chart_cache = st.session_state['chart_cache']
 cache_stats = st.session_state['cache_stats']
 
-def get_cache_info():
-    """Get current cache statistics."""
-    total_charts = len(chart_cache)
-    hits = cache_stats['hits']
-    misses = cache_stats['misses']
-    supabase_hits = cache_stats['supabase_hits']
-    supabase_misses = cache_stats['supabase_misses']
-    hit_rate = (hits / (hits + misses)) * 100 if (hits + misses) > 0 else 0
-    return {
-        'total_cached': total_charts,
-        'hits': hits,
-        'misses': misses,
-        'supabase_hits': supabase_hits,
-        'supabase_misses': supabase_misses,
-        'hit_rate': hit_rate
-    }
-
-# --- Cache Statistics ---
-if s3_client:
-    st.sidebar.header("Cache Statistics")
-    cache_info = get_cache_info()
-    with st.sidebar.expander("View cache performance"):
-        st.write(f"**Local Cache:** {cache_info['hits']} hits, {cache_info['misses']} misses")
-        st.write(f"**Supabase Cache:** {cache_info['supabase_hits']} hits, {cache_info['supabase_misses']} misses")
-        st.write(f"**Hit Rate:** {cache_info['hit_rate']:.1f}%")
-        st.write(f"**Total Cached Charts:** {cache_info['total_cached']}")
-else:
-    if is_cloud:
-        st.sidebar.info("💾 Supabase caching unavailable - using local cache only")
-    else:
-        st.sidebar.info("💻 Local mode - using in-memory cache only")
-
-
+# --- File Upload Section ---
 # --- File uploaders (only enabled for local runs) ---
 if not is_cloud:
     st.sidebar.header("Upload Your Files")
@@ -196,7 +168,6 @@ try:
         abundance_df = parse_biom(open('demo_biom.biom', 'rb'))
         # Sample for resource efficiency
         abundance_df = abundance_df.iloc[:100, :100]
-        st.info(f"Loaded demo BIOM file with shape: {abundance_df.shape}")
 except Exception as e:
     st.error(f"Error loading biom file: {e}")
     st.stop()
@@ -269,7 +240,8 @@ selected_groups = st.multiselect(
     default=default_selected,
     help="Toggle which groups to display in the grouped bar chart."
 )
-top_n = st.slider("Select number of top microbes:", min_value=5, max_value=15, value=10, step=1)
+# Create a slider that shows actual microbe counts as labels
+top_n = st.slider("Select number of top microbes:", min_value=4, max_value=10, value=10, step=2)
 
 
 # --- Compute top microbes and prepare comparison table from cached means ---
@@ -305,13 +277,18 @@ top_microbes, comparison_df, id_mapping_df, microbe_numbers = get_top_microbes_f
 def standardize_group_order(groups):
     """
     Standardize the order of groups to ensure consistent chart rendering and caching.
-    Sort alphabetically (a-z, then 0-9), with "not provided" always at the end.
+    Sort letters first (a-z), then numbers (0-9), with "not provided" always at the end.
     """
     def sort_key(item):
         item_str = str(item).lower()
         if item_str == "not provided":
             return "zzz_not_provided"  # Ensures it comes last
-        return item_str
+        
+        # Check if starts with letter vs number to prioritize letters
+        if item_str[0].isalpha():
+            return f"a_{item_str}"  # Letters get 'a_' prefix
+        else:
+            return f"b_{item_str}"  # Numbers/other get 'b_' prefix
     
     return sorted(groups, key=sort_key)
 
@@ -387,10 +364,6 @@ def generate_cache_key(*args):
     key_string = '|'.join(processed_args)
     cache_key = hashlib.md5(key_string.encode()).hexdigest()
     
-    # Debug: show cache key generation in sidebar (only in cloud for debugging)
-    if is_cloud and st.secrets.get("DEBUG_CACHE", False):
-        st.sidebar.write(f"🔑 Cache key: `{cache_key[:8]}...`")
-    
     return cache_key
 
 def get_chart_from_supabase(cache_key):
@@ -440,30 +413,17 @@ def get_cached_chart(cache_key):
     2. Supabase storage (persistent)
     3. Return None if not found anywhere
     """
-    # Debug info
-    debug_cache = is_cloud and st.secrets.get("DEBUG_CACHE", False)
-    
     # Check local cache first
     if cache_key in chart_cache:
         cache_stats['hits'] += 1
-        if debug_cache:
-            st.sidebar.success(f"✅ Local cache HIT for `{cache_key[:8]}...`")
         return chart_cache[cache_key]
-    
-    if debug_cache:
-        st.sidebar.warning(f"❌ Local cache MISS for `{cache_key[:8]}...`")
     
     # Check Supabase cache
     supabase_chart = get_chart_from_supabase(cache_key)
     if supabase_chart:
         # Store in local cache for faster future access
         chart_cache[cache_key] = supabase_chart
-        if debug_cache:
-            st.sidebar.success(f"✅ Supabase cache HIT for `{cache_key[:8]}...`")
         return supabase_chart
-    
-    if debug_cache:
-        st.sidebar.warning(f"❌ Supabase cache MISS for `{cache_key[:8]}...`")
     
     # Not found anywhere
     cache_stats['misses'] += 1
@@ -471,21 +431,12 @@ def get_cached_chart(cache_key):
 
 def save_chart_to_cache(cache_key, chart_buffer):
     """Save chart to both local cache and Supabase."""
-    debug_cache = is_cloud and st.secrets.get("DEBUG_CACHE", False)
-    
     # Save to local cache
     chart_cache[cache_key] = chart_buffer
-    if debug_cache:
-        st.sidebar.info(f"💾 Saved to local cache: `{cache_key[:8]}...`")
     
     # Save to Supabase for persistence
     if s3_client:
-        success = save_chart_to_supabase(cache_key, chart_buffer)
-        if debug_cache:
-            if success:
-                st.sidebar.info(f"☁️ Saved to Supabase: `{cache_key[:8]}...`")
-            else:
-                st.sidebar.error(f"❌ Failed to save to Supabase: `{cache_key[:8]}...`")
+        save_chart_to_supabase(cache_key, chart_buffer)
 
 def get_top_microbes_from_combo_cache(cached_combo_means, selected_groups, top_n):
     # Use frozenset for lookup
@@ -528,13 +479,26 @@ def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
         str(standardized_df.values.tobytes())[:50]  # Sample of data for uniqueness
     )
     
-    # Try to get cached chart
-    cached_chart = get_cached_chart(cache_key)
-    if cached_chart:
-        st.image(cached_chart)
-        return
+    # Track cache status for debugging
+    cache_status = "newly_rendered"  # Default
+    
+    # Check local cache first
+    if cache_key in chart_cache:
+        cache_status = "in_app_cache"
+        st.image(chart_cache[cache_key])
+        return cache_status
+    
+    # Check Supabase cache
+    supabase_chart = get_chart_from_supabase(cache_key)
+    if supabase_chart:
+        # Store in local cache for faster future access
+        chart_cache[cache_key] = supabase_chart
+        cache_status = "supabase_cache"
+        st.image(supabase_chart)
+        return cache_status
     
     # Chart not in cache - render new one
+    cache_status = "newly_rendered"
     fig, ax = plt.subplots(figsize=(max(8, len(standardized_df.index)*0.5), 6))
     standardized_df.plot(kind='bar', ax=ax, width=0.8)
     ax.set_ylabel('Mean Abundance')
@@ -556,71 +520,48 @@ def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
     
     st.image(buf)
     plt.close(fig)
-
-def render_single_group_bar_chart(microbes, group, group_label, microbe_numbers):
-    # Generate consistent cache key including all relevant data
-    cache_key = generate_cache_key(
-        "single", 
-        group_label, 
-        group, 
-        microbes.index.tolist(), 
-        microbes.values.tolist(),
-        str(microbe_numbers)
-    )
     
-    # Try to get cached chart
-    cached_chart = get_cached_chart(cache_key)
-    if cached_chart:
-        st.image(cached_chart)
-        return
-    
-    # Chart not in cache - render new one
-    top_ids = []
-    for i, microbe in enumerate(microbes.index):
-        if microbe in microbe_numbers:
-            top_ids.append(microbe_numbers[microbe])
-        else:
-            # Fallback to consistent numbering for any missing microbes
-            top_ids.append(f"M{i+1}")
-    
-    fig, ax = plt.subplots()
-    microbes_copy = microbes.copy()  # Don't modify original data
-    microbes_copy.index = top_ids
-    microbes_copy.plot(kind='bar', ax=ax, color='skyblue')
-    ax.set_ylabel('Mean Abundance')
-    ax.set_xlabel('Microbe (ID)')
-    ax.set_title(f"{group}")
-    
-    # Save chart to buffer
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', bbox_inches='tight', dpi=150)
-    buf.seek(0)
-    
-    # Save to both caches
-    save_chart_to_cache(cache_key, buf)
-    
-    st.image(buf)
-    plt.close(fig)
+    return cache_status
 
 
-
-st.header(f"Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s")
+# Determine cache status first, then display header and chart
+cache_status = None
 if group_col == "age_cat" and len(selected_groups) < 3:
+    st.header(f"Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s")
     st.warning("Please select at least 3 age categories to render the combined chart.")
 elif not comparison_df.empty:
+    # Pre-check cache status for header color
+    standardized_groups = standardize_group_order(selected_groups)
+    standardized_df = comparison_df.copy()
+    if len(standardized_df.columns) > 1:
+        available_cols = [col for col in standardized_groups if col in standardized_df.columns]
+        standardized_df = standardized_df[available_cols]
+    
+    cache_key = generate_cache_key(
+        "grouped", 
+        group_label, 
+        standardized_groups, 
+        standardized_df.index.tolist(), 
+        standardized_df.columns.tolist(),
+        standardized_df.shape,
+        str(standardized_df.values.tobytes())[:50]
+    )
+    
+    # Determine cache status for header color
+    if cache_key in chart_cache:
+        cache_status = "in_app_cache"
+        st.markdown(f"<h1 style='color: red;'>Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s</h1>", unsafe_allow_html=True)
+    elif get_chart_from_supabase(cache_key):
+        cache_status = "supabase_cache"
+        st.markdown(f"<h1 style='color: black;'>Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s</h1>", unsafe_allow_html=True)
+    else:
+        cache_status = "newly_rendered"
+        st.markdown(f"<h1 style='color: navy;'>Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s</h1>", unsafe_allow_html=True)
+    
     render_grouped_bar_chart(comparison_df, group_label, selected_groups)
 else:
+    st.header(f"Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s")
     st.warning("No data available for the selected groups.")
-
-st.header(f"Top {top_n} Microbes per {group_label}")
-# Render individual charts in standardized order
-standardized_chart_groups = standardize_group_order(top_microbes.keys())
-for group in standardized_chart_groups:
-    if group in top_microbes:
-        microbes = top_microbes[group]
-        st.subheader(f"{group_label if group_col == group else group}")
-        render_single_group_bar_chart(microbes, group, group_label, microbe_numbers)
-        st.write(microbes)
 
 # Microbe ID mapping table
 st.header("Microbe ID Mapping Table")

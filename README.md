@@ -61,3 +61,6 @@ I welcome feedback, collaboration, and opportunities to apply or expand these te
 
 ## Contact
 For questions or collaboration, please reach out via email (em.gialitakis@gmail.com) or LinkedIn
+
+## 🙏 Courtesy Request
+If you find this project useful and plan to use it in your own work, I kindly ask that you notify me. This is not a license requirement—just a personal request so I can learn about its impact and possibly connect with fellow researchers. Thank you!
