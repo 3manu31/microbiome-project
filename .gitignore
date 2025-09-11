@@ -7,3 +7,34 @@
 *.secret
 
 __pycache__/
+
+# Utility scripts and temporary files (not needed for users)
+precompute_charts.py
+upload_charts_to_supabase.py
+list_supabase_files.py
+generate_token.py
+distill_metadata.py
+test_ordering.py
+
+# Precomputed chart directories and files
+precomputed_charts/
+*.png
+
+# Virtual environments
+venv/
+.venv/
+
+# Development containers
+.devcontainer/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
