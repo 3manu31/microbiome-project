@@ -419,20 +419,15 @@ def save_chart_to_supabase(cache_key, chart_buffer):
 def get_cached_chart(cache_key):
     """
     Get chart from cache with the following priority:
-    1. Streamlit session state cache (fastest)
-    2. Supabase storage (persistent)
-    3. Return None if not found anywhere
+    1. Supabase storage (persistent) - in-app cache temporarily disabled
+    2. Return None if not found anywhere
     """
-    # Check local cache first
-    if cache_key in chart_cache:
-        cache_stats['hits'] += 1
-        return chart_cache[cache_key]
+    # Skip local cache check - temporarily disabled to reduce memory usage
     
-    # Check Supabase cache
+    # Check Supabase cache only
     supabase_chart = get_chart_from_supabase(cache_key)
     if supabase_chart:
-        # Store in local cache for faster future access
-        chart_cache[cache_key] = supabase_chart
+        # Do not store in local cache to save memory
         return supabase_chart
     
     # Not found anywhere
@@ -440,11 +435,10 @@ def get_cached_chart(cache_key):
     return None
 
 def save_chart_to_cache(cache_key, chart_buffer):
-    """Save chart to both local cache and Supabase."""
-    # Save to local cache
-    chart_cache[cache_key] = chart_buffer
+    """Save chart only to Supabase - in-app cache temporarily disabled."""
+    # Skip local cache to save memory - temporarily disabled
     
-    # Save to Supabase for persistence
+    # Save to Supabase for persistence only
     if s3_client:
         save_chart_to_supabase(cache_key, chart_buffer)
 
@@ -492,17 +486,12 @@ def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
     # Track cache status for debugging
     cache_status = "newly_rendered"  # Default
     
-    # Check local cache first
-    if cache_key in chart_cache:
-        cache_status = "in_app_cache"
-        st.image(chart_cache[cache_key])
-        return cache_status
+    # Skip local cache check - temporarily disabled to reduce memory usage
     
-    # Check Supabase cache
+    # Check Supabase cache only
     supabase_chart = get_chart_from_supabase(cache_key)
     if supabase_chart:
-        # Store in local cache for faster future access
-        chart_cache[cache_key] = supabase_chart
+        # Do not store in local cache to save memory
         cache_status = "supabase_cache"
         st.image(supabase_chart)
         return cache_status
@@ -558,10 +547,8 @@ elif not comparison_df.empty:
     )
     
     # Determine cache status for header color
-    if cache_key in chart_cache:
-        cache_status = "in_app_cache"
-        st.markdown(f"<h1 style='color: red;'>Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s</h1>", unsafe_allow_html=True)
-    elif get_chart_from_supabase(cache_key):
+    # Skip in-app cache check - temporarily disabled
+    if get_chart_from_supabase(cache_key):
         cache_status = "supabase_cache"
         st.markdown(f"<h1 style='color: black;'>Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s</h1>", unsafe_allow_html=True)
     else:
