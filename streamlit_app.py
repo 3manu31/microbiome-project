@@ -243,6 +243,16 @@ selected_groups = st.multiselect(
 # Create a slider that shows actual microbe counts as labels
 top_n = st.slider("Select number of top microbes:", min_value=4, max_value=10, value=10, step=2)
 
+# --- Clear cache after each interaction to prevent resource overload ---
+if 'last_interaction' not in st.session_state:
+    st.session_state['last_interaction'] = None
+
+current_interaction = (group_col, tuple(selected_groups), top_n)
+if st.session_state['last_interaction'] != current_interaction:
+    # Clear chart cache and cached data
+    st.session_state['chart_cache'] = {}
+    st.cache_data.clear()
+    st.session_state['last_interaction'] = current_interaction
 
 # --- Compute top microbes and prepare comparison table from cached means ---
 
