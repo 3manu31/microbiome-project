@@ -1,73 +1,79 @@
 """
-Streamlit Microbiome Dashboard - Lightweight Chart Visualizer
+Streamlit Microbiome Dashboard - Enhanced Demo with Button Control (Online Version)
 
-This app is a simple visualizer that displays precomputed charts from Supabase.
-No data processing, no rendering, no caching - just instant chart display.
+This app supports both uploaded files and distilled demo data with enhanced features:
+- Depression metadata category
+- Filtered 'not provided' data
+- Optimized for Streamlit Cloud deployment
+- Supabase chart caching for performance
+- Button-controlled chart generation for resource optimization
 """
 
 import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+import tempfile
+import itertools
 import hashlib
 import io
+from biom import load_table, Table
 
-# Supabase integration for chart retrieval
+# Configure page
+st.set_page_config(
+    page_title="Microbiome Explorer - Enhanced Demo",
+    page_icon="🦠",
+    layout="wide"
+)
+
+# Supabase Storage integration for cloud caching using S3-compatible API
 try:
     import boto3
     from botocore.exceptions import ClientError
     S3_AVAILABLE = True
 except ImportError:
     S3_AVAILABLE = False
-    st.error("boto3 not available - charts cannot be loaded")
-    st.stop()
 
-st.title("🦠 Microbiome Explorer - Chart Visualizer")
-st.info("⚡ **Instant Chart Loading** - All charts are precomputed and served from cloud storage.")
+st.title("🦠 Microbiome Explorer - Enhanced Demo")
+st.info("⚡ **Enhanced Demo** - Supports distilled data | Depression category | Button-controlled charts | Supabase caching")
 
-# Sidebar info
+# Detect Streamlit Cloud environment
+is_cloud = (
+    os.environ.get("STREAMLIT_SERVER_HEADLESS", "false").lower() == "true" or
+    os.environ.get("STREAMLIT_SHARING", "false").lower() == "true" or 
+    "streamlit.io" in os.environ.get("STREAMLIT_SERVER_ADDRESS", "") or
+    os.environ.get("HOSTNAME", "").startswith("streamlit") or
+    "STREAMLIT_CLOUD" in os.environ
+)
+
+# Sidebar setup
 st.sidebar.header("About This Demo")
-st.sidebar.success("✅ **Zero Computation**: Charts load instantly\n✅ **Lightweight**: No data processing\n✅ **Fast**: Pure visualization")
+if is_cloud:
+    st.sidebar.success("☁️ **Cloud Mode**: Using distilled demo data\n✅ **Enhanced**: Depression category\n✅ **Optimized**: Button-controlled rendering")
+else:
+    st.sidebar.info("💻 **Local Mode**: Full functionality\n✅ **Upload**: Custom files supported\n✅ **Enhanced**: All features available")
+
 st.sidebar.markdown("---")
-st.sidebar.markdown("For data upload and full features:")
-st.sidebar.code("streamlit run streamlit_app.py")
+st.sidebar.header("Limitations & Warnings")
+st.sidebar.warning("⚠️ Cloud demo: Click 'Generate Charts' button\n⚠️ Toggle options one at a time\n⚠️ File upload disabled on cloud")
+
 st.sidebar.markdown("---")
-st.sidebar.markdown("© 2025 Emmanuel Gialitakis")
+st.sidebar.markdown("© 2025 Emmanuel Gialitakis | Apache 2.0 License")
 
-"""
-Streamlit Microbiome Dashboard - Lightweight Chart Visualizer
+# Initialize caching systems
+if 'chart_cache' not in st.session_state:
+    st.session_state['chart_cache'] = {}
+if 'cache_stats' not in st.session_state:
+    st.session_state['cache_stats'] = {'hits': 0, 'misses': 0, 'supabase_hits': 0, 'supabase_misses': 0}
 
-This app is a simple visualizer that displays precomputed charts from Supabase.
-No data processing, no rendering, no caching - just instant chart display.
-"""
-
-import streamlit as st
-import hashlib
-import io
-
-# Supabase integration for chart retrieval
-try:
-    import boto3
-    from botocore.exceptions import ClientError
-    S3_AVAILABLE = True
-except ImportError:
-    S3_AVAILABLE = False
-    st.error("boto3 not available - charts cannot be loaded")
-    st.stop()
-
-st.title("🦠 Microbiome Explorer - Chart Visualizer")
-st.info("⚡ **Instant Chart Loading** - All charts are precomputed and served from cloud storage.")
-
-# Sidebar info
-st.sidebar.header("About This Demo")
-st.sidebar.success("✅ **Zero Computation**: Charts load instantly\n✅ **Lightweight**: No data processing\n✅ **Fast**: Pure visualization")
-st.sidebar.markdown("---")
-st.sidebar.markdown("For data upload and full features:")
-st.sidebar.code("streamlit run streamlit_app.py")
-st.sidebar.markdown("---")
-st.sidebar.markdown("© 2025 Emmanuel Gialitakis")
-
-# Supabase S3 client setup
+# Supabase S3-compatible configuration
 @st.cache_resource
 def get_s3_client():
-    """Initialize S3-compatible client for Supabase Storage."""
+    """Initialize S3-compatible client for Supabase Storage using access keys."""
+    if not S3_AVAILABLE:
+        return None
+    
     try:
         supabase_url = st.secrets.get("SUPABASE_URL")
         access_key_id = st.secrets.get("ACCESS_KEY_ID")
@@ -85,256 +91,33 @@ def get_s3_client():
                 region_name='us-east-1'
             )
     except Exception as e:
-        st.error(f"Failed to connect to Supabase: {e}")
-    return None
-
-# Get chart from Supabase
-def get_chart_from_supabase(s3_client, cache_key):
-    """Retrieve chart from Supabase storage."""
-    if not s3_client:
-        return None
-    
-    try:
-        response = s3_client.get_object(Bucket='chart_cache', Key=f"{cache_key}.png")
-        return io.BytesIO(response['Body'].read())
-    except ClientError:
-        return None
-    except Exception:
-        return None
-
-# Generate cache key (same logic as precompute script)
-def generate_cache_key(*args):
-    """Generate cache key for chart lookup."""
-    processed_args = []
-    for arg in args:
-        if isinstance(arg, list):
-            processed_args.append(str(sorted(arg)))
-        else:
-            processed_args.append(str(arg))
-    
-    key_string = '|'.join(processed_args)
-    return hashlib.md5(key_string.encode()).hexdigest()
-
-# Standardize group order (same as precompute script)
-def standardize_group_order(groups):
-    """Standardize group order for consistent cache keys."""
-    def sort_key(item):
-        item_str = str(item).lower()
-        if item_str == "not provided":
-            return "zzz_not_provided"
-        if item_str[0].isalpha():
-            return f"a_{item_str}"
-        else:
-            return f"b_{item_str}"
-    
-    return sorted(groups, key=sort_key)
-
-# Initialize S3 client
-s3_client = get_s3_client()
-
-if not s3_client:
-    st.error("Unable to connect to chart storage. Please check configuration.")
-    st.stop()
-
-# Simple UI for chart selection
-st.header("Chart Options")
-
-# Group selection
-group_options = {
-    'Age Category': 'age_cat',
-    'Mental Illness': 'mental_illness', 
-    'Sex': 'sex',
-    'Sample Type': 'sample_type',
-    'Autism Spectrum Disorder (ASD)': 'asd'
-}
-
-selected_group_label = st.selectbox("Select grouping:", list(group_options.keys()))
-group_col = group_options[selected_group_label]
-
-# Predefined group values (from demo data)
-group_values_map = {
-    'age_cat': ['child', 'teen', 'adult'],
-    'mental_illness': ['no', 'yes'],
-    'sex': ['female', 'male'],
-    'sample_type': ['stool'],
-    'asd': ['no', 'yes']
-}
-
-available_groups = group_values_map.get(group_col, [])
-selected_groups = st.multiselect(
-    f"Select {selected_group_label.lower()} values:",
-    options=available_groups,
-    default=available_groups
-)
-
-# Top microbes slider
-top_n = st.slider("Number of top microbes:", min_value=4, max_value=10, value=10, step=2)
-
-# Display chart
-if selected_groups:
-    st.header(f"Chart: Top {top_n} Microbes by {selected_group_label}")
-    
-    # Generate cache key using same logic as precompute script
-    standardized_groups = standardize_group_order(selected_groups)
-    cache_key = generate_cache_key(
-        "grouped",
-        selected_group_label,
-        standardized_groups,
-        list(range(top_n)),  # Simplified microbe list
-        standardized_groups,
-        (top_n, len(standardized_groups))
-    )
-    
-    # Try to get chart from Supabase
-    chart_buffer = get_chart_from_supabase(s3_client, cache_key)
-    
-    if chart_buffer:
-        st.success("📊 Chart loaded from storage!")
-        st.image(chart_buffer, use_column_width=True)
-    else:
-        st.warning("⚠️ Chart not found in storage for this combination.")
-        st.info("💡 This chart combination may not be precomputed yet.")
-        
-        # Show debugging info
-        with st.expander("Debug Info"):
-            st.write(f"Cache key: `{cache_key}`")
-            st.write(f"Groups: {standardized_groups}")
-            st.write(f"Top N: {top_n}")
-else:
-    st.info("👆 Please select group values to display a chart.")
-
-# Simple chart browser
-st.header("Available Charts")
-if st.button("List all available charts"):
-    try:
-        response = s3_client.list_objects_v2(Bucket='chart_cache', MaxKeys=20)
-        if 'Contents' in response:
-            st.write(f"Showing first 20 of available charts:")
-            for obj in response['Contents']:
-                if obj['Key'].endswith('.png'):
-                    st.write(f"- {obj['Key']}")
-        else:
-            st.write("No charts found in storage.")
-    except Exception as e:
-        st.error(f"Failed to list charts: {e}")
-
-# Supabase Storage integration for cloud caching using S3-compatible API
-try:
-    import boto3
-    from botocore.exceptions import ClientError
-    S3_AVAILABLE = True
-except ImportError:
-    S3_AVAILABLE = False
-
-# Supabase S3-compatible configuration (for cloud deployment only)
-def get_s3_client():
-    """Initialize S3-compatible client for Supabase Storage using access keys."""
-    if not S3_AVAILABLE:
-        return None
-    
-    try:
-        supabase_url = st.secrets.get("SUPABASE_URL")
-        access_key_id = st.secrets.get("ACCESS_KEY_ID")
-        secret_access_key = st.secrets.get("SECRET_ACCESS_KEY")
-        
-        if supabase_url and access_key_id and secret_access_key:
-            # Extract project reference from URL for S3 endpoint
-            project_ref = supabase_url.split("//")[1].split(".")[0]
-            s3_endpoint = f"https://{project_ref}.supabase.co/storage/v1/s3"
-            
-            return boto3.client(
-                's3',
-                endpoint_url=s3_endpoint,
-                aws_access_key_id=access_key_id,
-                aws_secret_access_key=secret_access_key,
-                region_name='us-east-1'  # Required but ignored by Supabase
-            )
-    except Exception as e:
         st.warning(f"S3 connection failed: {e}")
     
     return None
 
-# Detect Streamlit Cloud environment
-# Multiple checks to ensure reliable cloud detection
-is_cloud = (
-    os.environ.get("STREAMLIT_SERVER_HEADLESS", "false").lower() == "true" or
-    os.environ.get("STREAMLIT_SHARING", "false").lower() == "true" or 
-    "streamlit.io" in os.environ.get("STREAMLIT_SERVER_ADDRESS", "") or
-    os.environ.get("HOSTNAME", "").startswith("streamlit") or
-    "STREAMLIT_CLOUD" in os.environ
-)
-
-
-st.title("Microbiome Top Microbes Dashboard")
-
-# Initialize S3 client early
+# Initialize S3 client
 s3_client = get_s3_client()
 
-# --- Limitations & Warnings ---
-st.sidebar.header("Limitations & Warnings")
-st.sidebar.warning("\n- The live demo may be slow or crash if toggling options too quickly due to Streamlit Cloud resource limits.\n- Please toggle one option at a time and wait for the page to load before toggling again.\n- File upload is disabled on the cloud demo; to use this feature, install and run the app locally.\n- If you see errors or the app crashes, reload the page and try again.\n")
-
-# Copyright and author notice
-st.sidebar.markdown("<hr style='margin-top:2em;margin-bottom:0.5em;'>", unsafe_allow_html=True)
-st.sidebar.markdown("<div style='text-align:center; color:gray; font-size:0.9em;'>© 2025 Emmanuel Gialitakis | Apache 2.0 License</div>", unsafe_allow_html=True)
-
-# Initialize cache system early
-if 'chart_cache' not in st.session_state:
-    st.session_state['chart_cache'] = {}
-if 'cache_stats' not in st.session_state:
-    st.session_state['cache_stats'] = {'hits': 0, 'misses': 0, 'supabase_hits': 0, 'supabase_misses': 0}
-
-chart_cache = st.session_state['chart_cache']
-cache_stats = st.session_state['cache_stats']
-
-# --- File Upload Section ---
-# --- File uploaders (only enabled for local runs) ---
+# File Upload Section (only for local runs)
 if not is_cloud:
     st.sidebar.header("Upload Your Files")
     uploaded_metadata = st.sidebar.file_uploader("Upload metadata file (.txt or .csv)", type=["txt", "csv"])
     uploaded_biom = st.sidebar.file_uploader("Upload biom file (.biom)", type=["biom"])
 else:
-    st.sidebar.header("Upload Your Files")
-    st.sidebar.info("🚫 File upload is disabled on Streamlit Cloud. Using demo files instead.")
-    st.sidebar.write("To upload your own files, run the app locally:")
-    st.sidebar.code("streamlit run streamlit_app.py")
     uploaded_metadata = None
     uploaded_biom = None
 
-
-# --- Load metadata with caching ---
-@st.cache_data(show_spinner=False)
-def load_metadata(uploaded_metadata):
-    if uploaded_metadata is not None:
-        if hasattr(uploaded_metadata, 'size') and uploaded_metadata.size > 100 * 1024 * 1024:
-            st.error("Uploaded metadata file is too large. Please upload a file smaller than 100MB.")
-            st.stop()
-        return pd.read_csv(
-            uploaded_metadata,
-            sep='\t' if uploaded_metadata.name.endswith('.txt') else ',',
-            low_memory=False,
-            encoding='utf-8'
-        )
+# Load BIOM file functions
+def parse_biom(uploaded_biom):
+    """Parse BIOM file from uploaded content or file path."""
+    if isinstance(uploaded_biom, str):
+        # File path
+        with open(uploaded_biom, 'rb') as f:
+            content = f.read()
     else:
-        # Load distilled demo metadata file
-        if not os.path.exists('metadata_demo.txt'):
-            st.error("Demo metadata_demo.txt file not found in repo. Please upload a metadata file.")
-            st.stop()
-        return pd.read_csv('metadata_demo.txt', sep='\t', low_memory=False, encoding='utf-8')
-
-try:
-    metadata = load_metadata(uploaded_metadata)
-except Exception as e:
-    st.error(f"Error loading metadata: {e}")
-    st.stop()
-
-# --- Load abundance data from .biom file ---
-
-
-
-# --- Load BIOM file and cache DataFrame ---
-def parse_biom(_uploaded_biom):
-    content = _uploaded_biom.read()
+        # Uploaded file
+        content = uploaded_biom.read()
+    
     try:
         import json
         table = Table.from_json(json.loads(content.decode('utf-8')))
@@ -349,9 +132,34 @@ def parse_biom(_uploaded_biom):
 def load_abundance_df(_uploaded_biom):
     return parse_biom(_uploaded_biom)
 
+# Load metadata with caching
+@st.cache_data(show_spinner=False)
+def load_metadata(uploaded_metadata):
+    if uploaded_metadata is not None:
+        if hasattr(uploaded_metadata, 'size') and uploaded_metadata.size > 100 * 1024 * 1024:
+            st.error("Uploaded metadata file is too large. Please upload a file smaller than 100MB.")
+            st.stop()
+        return pd.read_csv(
+            uploaded_metadata,
+            sep='\t' if uploaded_metadata.name.endswith('.txt') else ',',
+            low_memory=False,
+            encoding='utf-8'
+        )
+    else:
+        # Load distilled demo metadata file
+        if not os.path.exists('metadata_demo_distilled.txt'):
+            st.error("Demo metadata_demo_distilled.txt file not found. Please upload a metadata file.")
+            st.stop()
+        return pd.read_csv('metadata_demo_distilled.txt', sep='\t', low_memory=False, encoding='utf-8')
 
+# Load data
+try:
+    metadata = load_metadata(uploaded_metadata)
+except Exception as e:
+    st.error(f"Error loading metadata: {e}")
+    st.stop()
 
-# --- Load BIOM file for demo mode (cloud) ---
+# Load BIOM file
 try:
     if uploaded_biom is not None:
         if hasattr(uploaded_biom, 'size') and uploaded_biom.size > 100 * 1024 * 1024:
@@ -359,50 +167,38 @@ try:
             st.stop()
         abundance_df = load_abundance_df(uploaded_biom)
     else:
-        # Demo mode: load demo_biom.biom file
-        if not os.path.exists('demo_biom.biom'):
-            st.error("Demo BIOM file not found in repo. Please upload a BIOM file named demo_biom.biom.")
+        # Demo mode: load distilled BIOM file
+        if not os.path.exists('demo_biom_distilled.biom'):
+            st.error("Demo BIOM file demo_biom_distilled.biom not found.")
             st.stop()
-        abundance_df = parse_biom(open('demo_biom.biom', 'rb'))
-        # Sample for resource efficiency
-        abundance_df = abundance_df.iloc[:100, :100]
+        abundance_df = parse_biom('demo_biom_distilled.biom')
 except Exception as e:
     st.error(f"Error loading biom file: {e}")
     st.stop()
 
-# --- Merge abundance and metadata ---
-
-
-# Only limit samples/features for demo data
-is_demo = (
-    uploaded_metadata is None and uploaded_biom is None
-)
-MAX_FEATURES = 100 if is_demo else None
-
+# Merge abundance and metadata
 if metadata is None or abundance_df is None:
     st.warning("Please upload both a metadata file and a BIOM file to proceed.")
     st.stop()
+
 try:
-    # Limit features for demo data only
-    if is_demo:
-        if MAX_FEATURES and abundance_df.shape[1] > MAX_FEATURES:
-            abundance_df = abundance_df.iloc[:, :MAX_FEATURES]
     merged = abundance_df.merge(metadata, left_index=True, right_on='sample_id')
+    st.success(f"✅ Loaded {len(merged)} samples with {abundance_df.shape[1]} microbes")
 except Exception as e:
     st.error(f"Error merging abundance and metadata: {e}. Please check that sample IDs match.")
     st.stop()
 
-
-
-# --- Precompute and cache group means for grouped bar chart ---
+# Group options including depression
 group_options = [
     ('age_cat', 'Age Category'),
     ('mental_illness', 'Mental Illness'),
+    ('depression', 'Depression'),
     ('sex', 'Sex'),
     ('sample_type', 'Sample Type'),
     ('asd', 'Autism Spectrum Disorder (ASD)')
 ]
 
+# Precompute group combination means for caching
 @st.cache_data(show_spinner=False)
 def precompute_group_combo_means(merged, group_options, metadata):
     cache = {}
@@ -414,7 +210,6 @@ def precompute_group_combo_means(merged, group_options, metadata):
             combos.extend(itertools.combinations(group_values, r))
         cache[group_col] = {}
         for combo in combos:
-            # Combo is a tuple of group values
             combo_df = merged[merged[group_col].isin(combo)]
             mean_abundance = combo_df.iloc[:, :-len(metadata.columns)].mean(axis=0)
             cache[group_col][frozenset(combo)] = mean_abundance
@@ -425,74 +220,48 @@ def precompute_group_combo_means(merged, group_options, metadata):
 
 cached_group_combo_means = precompute_group_combo_means(merged, group_options, metadata)
 
-# --- UI for grouped bar chart ---
+# UI for grouped bar chart
+st.header("📊 Chart Configuration")
 
-group_col_label = st.selectbox("Select grouping column:", [label for _, label in group_options])
-group_col = next(code for code, label in group_options if label == group_col_label)
-group_label = group_col_label
+col1, col2 = st.columns([3, 1])
+
+with col1:
+    group_col_label = st.selectbox("Select grouping column:", [label for _, label in group_options])
+    group_col = next(code for code, label in group_options if label == group_col_label)
+
+with col2:
+    top_n = st.slider("Number of top microbes:", min_value=4, max_value=10, value=10, step=2)
+
+# Get available groups
 group_values = [g for g in merged[group_col].dropna().unique().tolist()]
-default_selected = group_values.copy()
 selected_groups = st.multiselect(
-    f"Show {group_label} options in grouped bar chart:",
+    f"Show {group_col_label} options in grouped bar chart:",
     options=group_values,
-    default=default_selected,
+    default=group_values,
     help="Toggle which groups to display in the grouped bar chart."
 )
-# Create a slider that shows actual microbe counts as labels
-top_n = st.slider("Select number of top microbes:", min_value=4, max_value=10, value=10, step=2)
 
-# --- Clear cache after each interaction to prevent resource overload ---
-if 'last_interaction' not in st.session_state:
-    st.session_state['last_interaction'] = None
+# Add Generate Charts button for cloud version only
+if is_cloud:
+    st.markdown("---")
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        generate_charts = st.button(
+            "🚀 Generate Charts", 
+            type="primary", 
+            use_container_width=True,
+            help="Click to render charts with current settings. This prevents automatic re-rendering and optimizes resource usage."
+        )
+else:
+    generate_charts = True  # Always true for local version
 
-current_interaction = (group_col, tuple(selected_groups), top_n)
-if st.session_state['last_interaction'] != current_interaction:
-    # Clear chart cache and cached data
-    st.session_state['chart_cache'] = {}
-    st.cache_data.clear()
-    st.session_state['last_interaction'] = current_interaction
-
-# --- Compute top microbes and prepare comparison table from cached means ---
-
-def get_top_microbes_from_combo_cache(cached_combo_means, selected_groups, top_n):
-    # Use frozenset for lookup
-    combo_key = frozenset(selected_groups)
-    mean_abundance = cached_combo_means.get(combo_key)
-    if mean_abundance is None:
-        # fallback: empty DataFrame
-        return {}, pd.DataFrame(), pd.DataFrame(), {}
-    top = mean_abundance.sort_values(ascending=False).head(top_n)
-    all_top_microbes = top.index
-    microbe_numbers = {microbe: f"M{idx+1}" for idx, microbe in enumerate(all_top_microbes)}
-    comparison_data = {"Combo": mean_abundance.loc[all_top_microbes]}
-    comparison_df = pd.DataFrame(comparison_data)
-    comparison_df.index = [microbe_numbers[microbe] for microbe in comparison_df.index]
-    id_mapping_df = pd.DataFrame({
-        'Microbe ID': [microbe_numbers[microbe] for microbe in all_top_microbes],
-        'Sequence': [microbe for microbe in all_top_microbes]
-    })
-    top_microbes = {"Combo": top}
-    return top_microbes, comparison_df, id_mapping_df, microbe_numbers
-
-top_microbes, comparison_df, id_mapping_df, microbe_numbers = get_top_microbes_from_combo_cache(
-    cached_group_combo_means[group_col], selected_groups, top_n
-)
-
-
-
-# --- Helper Functions ---
-
+# Helper Functions
 def standardize_group_order(groups):
-    """
-    Standardize the order of groups to ensure consistent chart rendering and caching.
-    Sort letters first (a-z), then numbers (0-9), with "not provided" always at the end.
-    """
+    """Standardize the order of groups to ensure consistent chart rendering and caching."""
     def sort_key(item):
         item_str = str(item).lower()
         if item_str == "not provided":
             return "zzz_not_provided"  # Ensures it comes last
-        
-        # Check if starts with letter vs number to prioritize letters
         if item_str[0].isalpha():
             return f"a_{item_str}"  # Letters get 'a_' prefix
         else:
@@ -500,9 +269,8 @@ def standardize_group_order(groups):
     
     return sorted(groups, key=sort_key)
 
-# --- Enhanced Comparison Table ---
 def create_comparison_table(cached_combo_means, selected_groups, top_n):
-    # Standardize group order for consistent table creation
+    """Create comparison table for multiple groups."""
     standardized_groups = standardize_group_order(selected_groups)
     
     comparison_data = {}
@@ -517,49 +285,24 @@ def create_comparison_table(cached_combo_means, selected_groups, top_n):
     comparison_df.index.name = 'Microbe'
     return comparison_df, top_microbes
 
-comparison_df, comparison_top_microbes = create_comparison_table(cached_group_combo_means[group_col], selected_groups, top_n)
-
-# --- Create unified microbe numbering system ---
 def create_unified_microbe_numbers(all_microbe_sets):
     """Create a unified microbe numbering system across all charts."""
-    # Combine all unique microbes from different sources
     all_unique_microbes = set()
     for microbe_set in all_microbe_sets:
         all_unique_microbes.update(microbe_set)
     
-    # Sort for consistent numbering
     sorted_microbes = sorted(list(all_unique_microbes))
     return {microbe: f"M{idx+1}" for idx, microbe in enumerate(sorted_microbes)}
 
-# Get all microbe sets that will be used
-top_microbes, combo_comparison_df, id_mapping_df, _ = get_top_microbes_from_combo_cache(
-    cached_group_combo_means[group_col], selected_groups, top_n
-)
-
-# Create unified numbering system
-all_microbe_sets = [
-    comparison_top_microbes,  # from comparison table
-    id_mapping_df['Sequence'] if not id_mapping_df.empty else []  # from combo cache
-]
-microbe_numbers = create_unified_microbe_numbers(all_microbe_sets)
-
-# --- Update Comparison Table with Microbe Codes ---
 def update_comparison_table_with_codes(comparison_df, microbe_numbers):
     updated_comparison_df = comparison_df.copy()
-    updated_comparison_df.index = [microbe_numbers.get(microbe, f"M{i+1}") for i, microbe in enumerate(updated_comparison_df.index)]
+    updated_comparison_df = updated_comparison_df.rename(index={microbe: microbe_numbers.get(microbe, f"M{i+1}") 
+                                                                for i, microbe in enumerate(updated_comparison_df.index)})
     return updated_comparison_df
 
-comparison_df = update_comparison_table_with_codes(comparison_df, microbe_numbers)
-
-# Update the ID mapping table with unified numbering
-if not id_mapping_df.empty:
-    id_mapping_df['Microbe ID'] = [microbe_numbers.get(seq, f"M{i+1}") for i, seq in enumerate(id_mapping_df['Sequence'])]
-
-# --- Supabase caching functions ---
-
+# Supabase caching functions
 def generate_cache_key(*args):
     """Generate a consistent, hashable cache key from arguments."""
-    # Convert all arguments to strings, ensuring consistent ordering for lists/dicts
     processed_args = []
     for arg in args:
         if isinstance(arg, list):
@@ -571,7 +314,6 @@ def generate_cache_key(*args):
     
     key_string = '|'.join(processed_args)
     cache_key = hashlib.md5(key_string.encode()).hexdigest()
-    
     return cache_key
 
 def get_chart_from_supabase(cache_key):
@@ -580,18 +322,14 @@ def get_chart_from_supabase(cache_key):
         return None
     
     try:
-        # Try to download the chart from Supabase storage
         response = s3_client.get_object(Bucket='chart_cache', Key=f"{cache_key}.png")
         if response:
-            cache_stats['supabase_hits'] += 1
+            st.session_state['cache_stats']['supabase_hits'] += 1
             return io.BytesIO(response['Body'].read())
-    except ClientError as e:
-        cache_stats['supabase_misses'] += 1
-        # Chart not found in Supabase or error occurred
-        pass
-    except Exception as e:
-        cache_stats['supabase_misses'] += 1
-        pass
+    except ClientError:
+        st.session_state['cache_stats']['supabase_misses'] += 1
+    except Exception:
+        st.session_state['cache_stats']['supabase_misses'] += 1
     
     return None
 
@@ -601,7 +339,6 @@ def save_chart_to_supabase(cache_key, chart_buffer):
         return False
     
     try:
-        # Upload chart to Supabase storage
         chart_buffer.seek(0)
         s3_client.put_object(
             Bucket='chart_cache',
@@ -614,121 +351,10 @@ def save_chart_to_supabase(cache_key, chart_buffer):
         st.warning(f"Failed to save chart to Supabase: {e}")
         return False
 
-def get_cached_chart(cache_key):
-    """
-    Get chart from cache with the following priority:
-    1. Supabase storage (persistent) - in-app cache temporarily disabled
-    2. Return None if not found anywhere
-    """
-    # Skip local cache check - temporarily disabled to reduce memory usage
-    
-    # Check Supabase cache only
-    supabase_chart = get_chart_from_supabase(cache_key)
-    if supabase_chart:
-        # Do not store in local cache to save memory
-        return supabase_chart
-    
-    # Not found anywhere
-    cache_stats['misses'] += 1
-    return None
-
-def save_chart_to_cache(cache_key, chart_buffer):
-    """Save chart only to Supabase - in-app cache temporarily disabled."""
-    # Skip local cache to save memory - temporarily disabled
-    
-    # Save to Supabase for persistence only
-    if s3_client:
-        save_chart_to_supabase(cache_key, chart_buffer)
-
-def get_top_microbes_from_combo_cache(cached_combo_means, selected_groups, top_n):
-    # Use frozenset for lookup
-    combo_key = frozenset(selected_groups)
-    mean_abundance = cached_combo_means.get(combo_key)
-    if mean_abundance is None:
-        # fallback: empty DataFrame
-        return {}, pd.DataFrame(), pd.DataFrame(), {}
-    top = mean_abundance.sort_values(ascending=False).head(top_n)
-    all_top_microbes = top.index
-    microbe_numbers = {microbe: f"M{idx+1}" for idx, microbe in enumerate(all_top_microbes)}
-    comparison_data = {"Combo": mean_abundance.loc[all_top_microbes]}
-    comparison_df = pd.DataFrame(comparison_data)
-    comparison_df.index = [microbe_numbers[microbe] for microbe in comparison_df.index]
-    id_mapping_df = pd.DataFrame({
-        'Microbe ID': [microbe_numbers[microbe] for microbe in all_top_microbes],
-        'Sequence': [microbe for microbe in all_top_microbes]
-    })
-    top_microbes = {"Combo": top}
-    return top_microbes, comparison_df, id_mapping_df, microbe_numbers
-
 def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
-    # Standardize group order for consistent rendering and caching
+    """Render grouped bar chart with caching."""
     standardized_groups = standardize_group_order(selected_groups)
     
-    # Reorder DataFrame columns to match standardized order
-    standardized_df = comparison_df.copy()
-    if len(standardized_df.columns) > 1:  # Only reorder if multiple columns
-        available_cols = [col for col in standardized_groups if col in standardized_df.columns]
-        standardized_df = standardized_df[available_cols]
-    
-    # Generate consistent cache key including data shape and content
-    cache_key = generate_cache_key(
-        "grouped", 
-        group_label, 
-        standardized_groups, 
-        standardized_df.index.tolist(), 
-        standardized_df.columns.tolist(),
-        standardized_df.shape,
-        str(standardized_df.values.tobytes())[:50]  # Sample of data for uniqueness
-    )
-    
-    # Track cache status for debugging
-    cache_status = "newly_rendered"  # Default
-    
-    # Skip local cache check - temporarily disabled to reduce memory usage
-    
-    # Check Supabase cache only
-    supabase_chart = get_chart_from_supabase(cache_key)
-    if supabase_chart:
-        # Do not store in local cache to save memory
-        cache_status = "supabase_cache"
-        st.image(supabase_chart)
-        return cache_status
-    
-    # Chart not in cache - render new one
-    cache_status = "newly_rendered"
-    fig, ax = plt.subplots(figsize=(max(8, len(standardized_df.index)*0.5), 6))
-    standardized_df.plot(kind='bar', ax=ax, width=0.8)
-    ax.set_ylabel('Mean Abundance')
-    ax.set_xlabel('Microbe')
-    ax.set_title(f"Comparison Across {group_label}s")
-    ax.legend(title=group_label, bbox_to_anchor=(1.05, 1), loc='upper left')
-    
-    # Adjust layout to prevent legend cutoff
-    plt.tight_layout()
-    plt.subplots_adjust(right=0.75)  # Make room for legend on the right
-    
-    # Save chart to buffer
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', bbox_inches='tight', dpi=150)
-    buf.seek(0)
-    
-    # Save to both caches
-    save_chart_to_cache(cache_key, buf)
-    
-    st.image(buf)
-    plt.close(fig)
-    
-    return cache_status
-
-
-# Determine cache status first, then display header and chart
-cache_status = None
-if group_col == "age_cat" and len(selected_groups) < 3:
-    st.header(f"Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s")
-    st.warning("Please select at least 3 age categories to render the combined chart.")
-elif not comparison_df.empty:
-    # Pre-check cache status for header color
-    standardized_groups = standardize_group_order(selected_groups)
     standardized_df = comparison_df.copy()
     if len(standardized_df.columns) > 1:
         available_cols = [col for col in standardized_groups if col in standardized_df.columns]
@@ -744,26 +370,132 @@ elif not comparison_df.empty:
         str(standardized_df.values.tobytes())[:50]
     )
     
-    # Determine cache status for header color
-    # Skip in-app cache check - temporarily disabled
-    if get_chart_from_supabase(cache_key):
-        cache_status = "supabase_cache"
-        st.markdown(f"<h1 style='color: black;'>Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s</h1>", unsafe_allow_html=True)
-    else:
-        cache_status = "newly_rendered"
-        st.markdown(f"<h1 style='color: navy;'>Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s</h1>", unsafe_allow_html=True)
+    cache_status = "newly_rendered"
     
-    render_grouped_bar_chart(comparison_df, group_label, selected_groups)
+    supabase_chart = get_chart_from_supabase(cache_key)
+    if supabase_chart:
+        cache_status = "supabase_cache"
+        st.image(supabase_chart)
+        return cache_status
+    
+    # Chart not in cache - render new one
+    cache_status = "newly_rendered"
+    fig, ax = plt.subplots(figsize=(max(8, len(standardized_df.index)*0.5), 6))
+    standardized_df.plot(kind='bar', ax=ax, width=0.8)
+    ax.set_ylabel('Mean Abundance')
+    ax.set_xlabel('Microbe')
+    ax.set_title(f"Comparison Across {group_label}s")
+    ax.legend(title=group_label, bbox_to_anchor=(1.05, 1), loc='upper left')
+    
+    plt.tight_layout()
+    plt.subplots_adjust(right=0.75)
+    
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', bbox_inches='tight', dpi=150)
+    buf.seek(0)
+    
+    # Save to Supabase cache
+    save_chart_to_supabase(cache_key, buf)
+    
+    st.image(buf)
+    plt.close(fig)
+    
+    return cache_status
+
+# Only process and display charts when button is clicked (or always for local version)
+if generate_charts:
+    # Clear cache to prevent resource overload
+    if 'last_interaction' not in st.session_state:
+        st.session_state['last_interaction'] = None
+
+    current_interaction = (group_col, tuple(selected_groups), top_n)
+    if st.session_state['last_interaction'] != current_interaction:
+        st.session_state['chart_cache'] = {}
+        st.cache_data.clear()
+        st.session_state['last_interaction'] = current_interaction
+
+    # Calculate comparison data
+    comparison_df, comparison_top_microbes = create_comparison_table(cached_group_combo_means[group_col], selected_groups, top_n)
+    
+    # Create unified microbe numbering system
+    all_microbe_sets = [comparison_top_microbes]
+    microbe_numbers = create_unified_microbe_numbers(all_microbe_sets)
+    
+    # Update comparison table with microbe codes
+    comparison_df = update_comparison_table_with_codes(comparison_df, microbe_numbers)
+
+    # Display results
+    if selected_groups:
+        if group_col == "age_cat" and len(selected_groups) < 3:
+            st.header(f"Enhanced Grouped Bar Chart: Microbe Abundance Across {group_col_label}s")
+            st.warning("Please select at least 3 age categories to render the combined chart.")
+        elif not comparison_df.empty:
+            # Pre-check cache status for header color
+            standardized_groups = standardize_group_order(selected_groups)
+            standardized_df = comparison_df.copy()
+            if len(standardized_df.columns) > 1:
+                available_cols = [col for col in standardized_groups if col in standardized_df.columns]
+                standardized_df = standardized_df[available_cols]
+            
+            cache_key = generate_cache_key(
+                "grouped", 
+                group_col_label, 
+                standardized_groups, 
+                standardized_df.index.tolist(), 
+                standardized_df.columns.tolist(),
+                standardized_df.shape,
+                str(standardized_df.values.tobytes())[:50]
+            )
+            
+            if get_chart_from_supabase(cache_key):
+                st.markdown(f"<h1 style='color: black;'>Enhanced Grouped Bar Chart: Microbe Abundance Across {group_col_label}s</h1>", unsafe_allow_html=True)
+            else:
+                st.markdown(f"<h1 style='color: navy;'>Enhanced Grouped Bar Chart: Microbe Abundance Across {group_col_label}s</h1>", unsafe_allow_html=True)
+            
+            render_grouped_bar_chart(comparison_df, group_col_label, selected_groups)
+        else:
+            st.header(f"Enhanced Grouped Bar Chart: Microbe Abundance Across {group_col_label}s")
+            st.warning("No data available for the selected groups.")
+
+        # Microbe ID mapping table
+        st.header("Microbe ID Mapping Table")
+        id_mapping_df = pd.DataFrame({
+            'Microbe ID': [microbe_numbers.get(microbe, f"M{i+1}") for i, microbe in enumerate(comparison_top_microbes)],
+            'Sequence': list(comparison_top_microbes)
+        })
+        st.dataframe(id_mapping_df, use_container_width=True, hide_index=True)
+
+        # Comparison table
+        st.header(f"Comparison Table Across {group_col_label}s")
+        st.dataframe(comparison_df)
+
+    else:
+        st.info("👆 Please select group values to display a chart.")
+
 else:
-    st.header(f"Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s")
-    st.warning("No data available for the selected groups.")
+    # Show configuration preview when button hasn't been clicked (cloud only)
+    if is_cloud:
+        st.info("👆 **Click 'Generate Charts' button above to render visualizations with your selected settings.**")
+        
+        # Show current configuration preview
+        st.header("📋 Current Configuration Preview")
+        config_data = {
+            "Setting": ["Grouping Category", "Selected Groups", "Top Microbes", "Total Samples"],
+            "Value": [
+                group_col_label,
+                f"{len(selected_groups)} groups: {', '.join(selected_groups[:3])}{'...' if len(selected_groups) > 3 else ''}",
+                f"{top_n} microbes",
+                f"{len(merged)} samples"
+            ]
+        }
+        config_df = pd.DataFrame(config_data)
+        st.dataframe(config_df, use_container_width=True, hide_index=True)
+        
+        st.success("✅ **Resource Optimization**: Charts only render when you click the button, saving computational resources.")
 
-# Microbe ID mapping table
-st.header("Microbe ID Mapping Table")
-st.dataframe(id_mapping_df, use_container_width=True, hide_index=True)
-
-# Comparison table
-st.header(f"Comparison Table Across {group_label}s")
-st.dataframe(comparison_df)
-
+# Footer info
+st.markdown("---")
 st.info("Upload your own files or change grouping column and top N for different comparisons.")
+
+if is_cloud:
+    st.info("💡 **Tip**: This online version uses button-controlled rendering to optimize performance on Streamlit Cloud.")
