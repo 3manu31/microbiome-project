@@ -56,11 +56,11 @@ A subset of microbiome data was obtained from the American Gut Project (Qiita St
 3. Upload your own files or use the provided example files
 
 ### About the Author
-Developed by Emmanuel Gialitakis—a medical student passionate about the intersection of medicine, technology, and coding. This project began as a personal learning exploration and a showcase of how computational tools can support research across clinical and lab settings.  
+Developed by Emmanuel Gialitakis, a medical student passionate about the intersection of medicine, technology, and coding. This project began as a personal learning exploration and a showcase of how computational tools can support research across clinical and lab settings.  
 I welcome feedback, collaboration, and opportunities to apply or expand these techniques in diverse research environments.
 
 ## Contact
 For questions or collaboration, please reach out via email (em.gialitakis@gmail.com) or LinkedIn
 
 ## 🙏 Courtesy Request
-If you find this project useful and plan to use it in your own work, I kindly ask that you notify me. This is not a license requirement—just a personal request so I can learn about its impact and possibly connect with fellow researchers. Thank you!
+If you find this project useful and plan to use it in your own work, I kindly ask that you notify me. This is not a license requirement, just a personal request so I can learn about its impact and possibly connect with fellow researchers. Thank you!

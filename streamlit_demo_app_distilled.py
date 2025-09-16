@@ -6,6 +6,7 @@ This app uses distilled demo data with:
 - Enhanced metadata with depression category
 - All 'not provided' data filtered out
 - Optimized for local runs without Supabase
+- Taxonomy integration for microbe identification
 """
 
 import streamlit as st
@@ -17,6 +18,7 @@ import tempfile
 import itertools
 import hashlib
 import io
+import json
 from biom import load_table, Table
 
 # Configure page
@@ -84,6 +86,41 @@ def load_demo_data():
         return None, None
         
     return abundance_df, metadata
+
+# Taxonomy Integration Functions
+@st.cache_data(show_spinner=False)
+def load_taxonomy_mapping():
+    """Load precomputed taxonomy mapping for distilled demo data."""
+    mapping_file = "taxonomy_mappings/distilled_demo_mapping.json"
+    
+    if os.path.exists(mapping_file):
+        try:
+            with open(mapping_file, 'r') as f:
+                data = json.load(f)
+            return data.get('mapping', {})
+        except Exception as e:
+            st.warning(f"Could not load taxonomy mapping: {e}")
+            return {}
+    else:
+        st.warning("Taxonomy mapping file not found. Microbe names will not be displayed.")
+        return {}
+
+def get_microbe_display_name(microbe_id, taxonomy_mapping):
+    """Get display name for microbe using taxonomy."""
+    if microbe_id in taxonomy_mapping:
+        return taxonomy_mapping[microbe_id].get('display_name', microbe_id)
+    
+    # Fallback to microbe ID (truncated if it's a sequence)
+    if len(microbe_id) > 20:
+        return f"Microbe_{microbe_id[:8]}..."
+    return microbe_id
+
+# Load taxonomy mapping
+taxonomy_mapping = load_taxonomy_mapping()
+if taxonomy_mapping:
+    st.success(f"✅ Loaded taxonomy data for {len(taxonomy_mapping)} microbes")
+else:
+    st.info("ℹ️ No taxonomy data available - microbe IDs will be displayed as-is")
 
 # Load data
 with st.spinner("Loading distilled demo data..."):
@@ -191,7 +228,7 @@ def standardize_group_order(groups):
     return sorted(groups, key=sort_key)
 
 def create_comparison_table(cached_combo_means, selected_groups, top_n):
-    """Create comparison table for multiple groups."""
+    """Create comparison table for multiple groups with taxonomy names."""
     standardized_groups = standardize_group_order(selected_groups)
     
     comparison_data = {}
@@ -203,6 +240,16 @@ def create_comparison_table(cached_combo_means, selected_groups, top_n):
     comparison_df = pd.DataFrame(comparison_data)
     top_microbes = comparison_df.mean(axis=1).sort_values(ascending=False).head(top_n).index
     comparison_df = comparison_df.loc[top_microbes]
+    
+    # Add taxonomy names to index
+    if taxonomy_mapping:
+        display_names = {}
+        for microbe_id in comparison_df.index:
+            display_name = get_microbe_display_name(microbe_id, taxonomy_mapping)
+            display_names[microbe_id] = display_name
+        
+        comparison_df = comparison_df.rename(index=display_names)
+    
     comparison_df.index.name = 'Microbe'
     return comparison_df, top_microbes
 
@@ -272,6 +319,7 @@ if selected_groups:
         st.subheader("🔍 Microbe ID Reference")
         mapping_df = pd.DataFrame({
             'Microbe ID': [microbe_numbers.get(microbe, f"M{i+1}") for i, microbe in enumerate(comparison_df.index)],
+            'Taxonomy Name': [get_microbe_display_name(microbe, taxonomy_mapping) for microbe in comparison_df.index],
             'Full Sequence ID': comparison_df.index.tolist()
         })
         st.dataframe(mapping_df, use_container_width=True, hide_index=True)

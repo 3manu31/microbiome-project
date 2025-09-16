@@ -1,0 +1,25 @@
+mesh_id,name,valid_runs
+D000067877,Autism Spectrum Disorder,606
+D000544,Alzheimer Disease,212
+D001289,Attention Deficit Disorder with Hyperactivity,188
+D001327,Autoimmune Diseases,553
+D001714,Bipolar Disorder,445
+D002318,Cardiovascular Diseases,354
+D002446,Celiac Disease,66
+D003015,Clostridium Infections,855
+D003248,Constipation,665
+D003863,Depression,358
+D003920,Diabetes Mellitus,124
+D003967,Diarrhea,513
+D004827,Epilepsy,42
+D006262,Health,16282
+D007410,Intestinal Diseases,337
+D007674,Kidney Diseases,66
+D008107,Liver Diseases,74
+D008171,Lung Diseases,599
+D008881,Migraine Disorders,568
+D010661,Phenylketonurias,4
+D012559,Schizophrenia,354
+D013959,Thyroid Diseases,541
+D015212,Inflammatory Bowel Diseases,605
+D043183,Irritable Bowel Syndrome,1002

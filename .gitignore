@@ -8,17 +8,52 @@
 
 __pycache__/
 
-# Utility scripts and temporary files (not needed for users)
-precompute_charts.py
-upload_charts_to_supabase.py
-list_supabase_files.py
-generate_token.py
-distill_metadata.py
+# Development and utility files (not needed for end users)
+taxonomy_processor.py
+test_all_apps_taxonomy.py
 test_ordering.py
+verify_distillation.py
+create_sequence_taxonomy_mapping.py
+distill_demo_data.py
+distill_metadata.py
+extract_sequences.py
 
-# Precomputed chart directories and files
-precomputed_charts/
-*.png
+# Legacy/obsolete files (old dataset and apps)
+demo_biom.biom
+demo_biom_distilled.biom
+metadata_demo_distilled.txt
+microbe_sequences_distilled.fasta
+microbe_sequences_full.fasta
+microbe_sequences_full_clean.fasta
+sequences_distilled.qza
+sequences_full.qza
+taxonomy_distilled.qza
+taxonomy_full.qza
+silva-138-99-nb-classifier.qza
+streamlit_app_backup.py
+streamlit_demo_app.py
+streamlit_demo_app.py.backup
+streamlit_demo_app_distilled.py
+
+# Processed/exported data not needed by users
+taxonomy_distilled_exported/
+taxonomy_mappings/
+
+# QIIME2 environment (not needed for app operation)
+qiime2-2024.2-py38-osx-conda.yml
+
+# Documentation (keep README.md and LICENSE visible)
+CHANGELOG.md
+DISTILLATION_SUMMARY.md
+SECURITY_SETUP.md
+TAXONOMY_INTEGRATION_SUMMARY.md
+
+# Unused GMRepo dataset files (taking space without utility)
+gmrepo_data_PRJEB11419/*.tsv.gz
+gmrepo_data_PRJEB11419/biom_files/
+gmrepo_data_PRJEB11419/abundance_data/
+gmrepo_data_PRJEB11419/phenotype_specific_data/
+gmrepo_data_PRJEB11419/phenotype_data/
 
 # Virtual environments
 venv/

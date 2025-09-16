@@ -1,0 +1,193 @@
+{
+  "taxonomy_file": "taxonomy.tsv",
+  "total_features": 17,
+  "index": {
+    "feature_1": {
+      "domain": "Bacteria",
+      "phylum": "Bacteroidota",
+      "class": "Bacteroidia",
+      "order": "Bacteroidales",
+      "family": "Bacteroidaceae",
+      "genus": "Bacteroides",
+      "species": "Unknown",
+      "confidence": 0.9994788200504068,
+      "full_taxonomy": "d__Bacteria;p__Bacteroidota;c__Bacteroidia;o__Bacteroidales;f__Bacteroidaceae;g__Bacteroides;s__"
+    },
+    "feature_2": {
+      "domain": "Bacteria",
+      "phylum": "Bacteroidota",
+      "class": "Bacteroidia",
+      "order": "Bacteroidales",
+      "family": "Prevotellaceae",
+      "genus": "Prevotella_9",
+      "species": "Unknown",
+      "confidence": 0.996801224972646,
+      "full_taxonomy": "d__Bacteria;p__Bacteroidota;c__Bacteroidia;o__Bacteroidales;f__Prevotellaceae;g__Prevotella_9;s__"
+    },
+    "feature_3": {
+      "domain": "Bacteria",
+      "phylum": "Bacteroidota",
+      "class": "Bacteroidia",
+      "order": "Bacteroidales",
+      "family": "Prevotellaceae",
+      "genus": "Prevotella_9",
+      "species": "Unknown",
+      "confidence": 0.9830955146885167,
+      "full_taxonomy": "d__Bacteria;p__Bacteroidota;c__Bacteroidia;o__Bacteroidales;f__Prevotellaceae;g__Prevotella_9;s__"
+    },
+    "feature_4": {
+      "domain": "Bacteria",
+      "phylum": "Firmicutes",
+      "class": "Clostridia",
+      "order": "Oscillospirales",
+      "family": "Ruminococcaceae",
+      "genus": "Faecalibacterium",
+      "species": "Unknown",
+      "confidence": 0.9893165230643984,
+      "full_taxonomy": "d__Bacteria;p__Firmicutes;c__Clostridia;o__Oscillospirales;f__Ruminococcaceae;g__Faecalibacterium;s__"
+    },
+    "feature_5": {
+      "domain": "Bacteria",
+      "phylum": "Bacteroidota",
+      "class": "Bacteroidia",
+      "order": "Bacteroidales",
+      "family": "Bacteroidaceae",
+      "genus": "Bacteroides",
+      "species": "Unknown",
+      "confidence": 0.994640749268356,
+      "full_taxonomy": "d__Bacteria;p__Bacteroidota;c__Bacteroidia;o__Bacteroidales;f__Bacteroidaceae;g__Bacteroides;s__"
+    },
+    "feature_6": {
+      "domain": "Bacteria",
+      "phylum": "Bacteroidota",
+      "class": "Bacteroidia",
+      "order": "Bacteroidales",
+      "family": "Bacteroidaceae",
+      "genus": "Bacteroides",
+      "species": "Unknown",
+      "confidence": 0.995662092947522,
+      "full_taxonomy": "d__Bacteria;p__Bacteroidota;c__Bacteroidia;o__Bacteroidales;f__Bacteroidaceae;g__Bacteroides;s__"
+    },
+    "feature_7": {
+      "domain": "Bacteria",
+      "phylum": "Firmicutes",
+      "class": "Clostridia",
+      "order": "Christensenellales",
+      "family": "Christensenellaceae",
+      "genus": "Christensenellaceae_R-7_group",
+      "species": "Unknown",
+      "confidence": 0.838421927070158,
+      "full_taxonomy": "d__Bacteria;p__Firmicutes;c__Clostridia;o__Christensenellales;f__Christensenellaceae;g__Christensenellaceae_R-7_group;s__"
+    },
+    "feature_8": {
+      "domain": "Bacteria",
+      "phylum": "Firmicutes",
+      "class": "Clostridia",
+      "order": "Oscillospirales",
+      "family": "Ruminococcaceae",
+      "genus": "Faecalibacterium",
+      "species": "Unknown",
+      "confidence": 0.9809748050245454,
+      "full_taxonomy": "d__Bacteria;p__Firmicutes;c__Clostridia;o__Oscillospirales;f__Ruminococcaceae;g__Faecalibacterium;s__"
+    },
+    "feature_9": {
+      "domain": "Bacteria",
+      "phylum": "Firmicutes",
+      "class": "Clostridia",
+      "order": "Oscillospirales",
+      "family": "Ruminococcaceae",
+      "genus": "Faecalibacterium",
+      "species": "Unknown",
+      "confidence": 0.9947075209820176,
+      "full_taxonomy": "d__Bacteria;p__Firmicutes;c__Clostridia;o__Oscillospirales;f__Ruminococcaceae;g__Faecalibacterium;s__"
+    },
+    "feature_10": {
+      "domain": "Bacteria",
+      "phylum": "Bacteroidota",
+      "class": "Bacteroidia",
+      "order": "Bacteroidales",
+      "family": "Bacteroidaceae",
+      "genus": "Bacteroides",
+      "species": "Unknown",
+      "confidence": 0.9983589612025264,
+      "full_taxonomy": "d__Bacteria;p__Bacteroidota;c__Bacteroidia;o__Bacteroidales;f__Bacteroidaceae;g__Bacteroides;s__"
+    },
+    "feature_11": {
+      "domain": "Bacteria",
+      "phylum": "Bacteroidota",
+      "class": "Bacteroidia",
+      "order": "Bacteroidales",
+      "family": "Prevotellaceae",
+      "genus": "Prevotella_9",
+      "species": "Unknown",
+      "confidence": 0.9954483260708898,
+      "full_taxonomy": "d__Bacteria;p__Bacteroidota;c__Bacteroidia;o__Bacteroidales;f__Prevotellaceae;g__Prevotella_9;s__"
+    },
+    "feature_12": {
+      "domain": "Bacteria",
+      "phylum": "Actinobacteriota",
+      "class": "Actinobacteria",
+      "order": "Bifidobacteriales",
+      "family": "Bifidobacteriaceae",
+      "genus": "Bifidobacterium",
+      "species": "Unknown",
+      "confidence": 0.9990257981113791,
+      "full_taxonomy": "d__Bacteria;p__Actinobacteriota;c__Actinobacteria;o__Bifidobacteriales;f__Bifidobacteriaceae;g__Bifidobacterium;s__"
+    },
+    "feature_13": {
+      "domain": "Bacteria",
+      "phylum": "Bacteroidota",
+      "class": "Bacteroidia",
+      "order": "Bacteroidales",
+      "family": "Bacteroidaceae",
+      "genus": "Bacteroides",
+      "species": "Unknown",
+      "confidence": 0.9975967442655702,
+      "full_taxonomy": "d__Bacteria;p__Bacteroidota;c__Bacteroidia;o__Bacteroidales;f__Bacteroidaceae;g__Bacteroides;s__"
+    },
+    "feature_14": {
+      "domain": "Bacteria",
+      "phylum": "Firmicutes",
+      "class": "Clostridia",
+      "order": "Lachnospirales",
+      "family": "Lachnospiraceae",
+      "genus": "Agathobacter",
+      "species": "Unknown",
+      "confidence": 0.7222663831708541,
+      "full_taxonomy": "d__Bacteria;p__Firmicutes;c__Clostridia;o__Lachnospirales;f__Lachnospiraceae;g__Agathobacter;s__"
+    },
+    "feature_15": {
+      "domain": "Bacteria",
+      "phylum": "Verrucomicrobiota",
+      "class": "Verrucomicrobiae",
+      "order": "Verrucomicrobiales",
+      "family": "Akkermansiaceae",
+      "genus": "Akkermansia",
+      "species": "Unknown",
+      "confidence": 0.9999695410081836,
+      "full_taxonomy": "d__Bacteria;p__Verrucomicrobiota;c__Verrucomicrobiae;o__Verrucomicrobiales;f__Akkermansiaceae;g__Akkermansia;s__"
+    },
+    "feature_16": {
+      "domain": "Bacteria",
+      "phylum": "Bacteroidota",
+      "class": "Bacteroidia",
+      "order": "Bacteroidales",
+      "family": "Bacteroidaceae",
+      "genus": "Bacteroides",
+      "species": "Unknown",
+      "confidence": 0.9982252141061024,
+      "full_taxonomy": "d__Bacteria;p__Bacteroidota;c__Bacteroidia;o__Bacteroidales;f__Bacteroidaceae;g__Bacteroides;s__"
+    },
+    "feature_17": {
+      "domain": "Bacteria",
+      "phylum": "Bacteroidota",
+      "class": "Bacteroidia",
+      "order": "Bacteroidales",
+      "family": "Bacteroidaceae",
+      "genus": "Bacteroides",
+      "species": "Unknown",
+      "confidence": 0.99965213052741,
+      "full_taxonomy": "d__Bacteria;p__Bacteroidota;c__Bacteroidia;o__Bacteroidales;f__Bacteroidaceae;g__Bacteroides;s__"
+    }
+  }
+}

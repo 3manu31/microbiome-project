@@ -1,0 +1,126 @@
+{
+  "biom_file": "demo_biom_distilled.biom",
+  "mapping_type": "distilled_demo",
+  "feature_count": 17,
+  "mapping": {
+    "TACGGAGGATCCGAGCGTTATCCGGATTTATTGGGTTTAAAGGGAGCGTAGATGGATGTTTAAGTCAGTTGTGAAAGTTTGCGGCTCAACCGTAAAATTGCAGTTGATACTGGATGTCTTGAGTG": {
+      "display_name": "Bacteroides",
+      "genus": "Bacteroides",
+      "species": "Unknown",
+      "family": "Bacteroidaceae",
+      "confidence": 0.9994788200504068
+    },
+    "TACGGAAGGTCCGGGCGTTATCCGGATTTATTGGGTTTAAAGGGAGCGTAGGCCGGAGATTAAGCGTGTTGTGAAATGTAGATGCTCAACATCTGCACTGCAGCGCGAACTGGTTTCCTTGAGTA": {
+      "display_name": "Prevotella_9",
+      "genus": "Prevotella_9",
+      "species": "Unknown",
+      "family": "Prevotellaceae",
+      "confidence": 0.996801224972646
+    },
+    "TACGGAAGGTCCGGGCGTTATCCGGATTTATTGGGTTTAAAGGGAGCGTAGGCCGGAGATTAAGCGTGTTGTGAAATGTAGACGCTCAACGTCTGCACTGCAGCGCGAACTGGTTTCCTTGAGTA": {
+      "display_name": "Prevotella_9",
+      "genus": "Prevotella_9",
+      "species": "Unknown",
+      "family": "Prevotellaceae",
+      "confidence": 0.9830955146885167
+    },
+    "AACGTAGGTCACAAGCGTTGTCCGGAATTACTGGGTGTAAAGGGAGCGCAGGCGGGAAGACAAGTTGGAAGTGAAATCCATGGGCTCAACCCATGAACTGCTTTCAAAACTGTTTTTCTTGAGTA": {
+      "display_name": "Faecalibacterium",
+      "genus": "Faecalibacterium",
+      "species": "Unknown",
+      "family": "Ruminococcaceae",
+      "confidence": 0.9893165230643984
+    },
+    "TACGGAGGATCCGAGCGTTATCCGGATTTATTGGGTTTAAAGGGAGCGTAGGTGGATTGTTAAGTCAGTTGTGAAAGTTTGCGGCTCAACCGTAAAATTGCAGTTGAAACTGGCAGTCTTGAGTA": {
+      "display_name": "Bacteroides",
+      "genus": "Bacteroides",
+      "species": "Unknown",
+      "family": "Bacteroidaceae",
+      "confidence": 0.994640749268356
+    },
+    "TACGGAGGATCCGAGCGTTATCCGGATTTATTGGGTTTAAAGGGAGCGTAGGCGGGTTGTTAAGTCAGTTGTGAAAGTTTGCGGCTCAACCGTAAAATTGCAGTTGATACTGGCGACCTTGAGTG": {
+      "display_name": "Bacteroides",
+      "genus": "Bacteroides",
+      "species": "Unknown",
+      "family": "Bacteroidaceae",
+      "confidence": 0.995662092947522
+    },
+    "TACGTAGGGGGCAAGCGTTGTCCGGAATAATTGGGCGTAAAGGGCGCGTAGGCGGCTCGGTAAGTCTGGAGTGAAAGTCCTGCTTTTAAGGTGGGAATTGCTTTGGATACTGTCGGGCTTGAGTG": {
+      "display_name": "Christensenellaceae_R-7_group",
+      "genus": "Christensenellaceae_R-7_group",
+      "species": "Unknown",
+      "family": "Christensenellaceae",
+      "confidence": 0.838421927070158
+    },
+    "AACGTAGGTCACAAGCGTTGTCCGGAATTACTGGGTGTAAAGGGAGCGCAGGCGGGAAGACAAGTTGGAAGTGAAATCTATGGGCTCAACCCATAAACTGCTTTCAAAACTGTTTTTCTTGAGTA": {
+      "display_name": "Faecalibacterium",
+      "genus": "Faecalibacterium",
+      "species": "Unknown",
+      "family": "Ruminococcaceae",
+      "confidence": 0.9809748050245454
+    },
+    "AACGTAGGTCACAAGCGTTGTCCGGAATTACTGGGTGTAAAGGGAGCGCAGGCGGGAGAACAAGTTGGAAGTGAAATCCATGGGCTCAACCCATGAACTGCTTTCAAAACTGTTTTTCTTGAGTA": {
+      "display_name": "Faecalibacterium",
+      "genus": "Faecalibacterium",
+      "species": "Unknown",
+      "family": "Ruminococcaceae",
+      "confidence": 0.9947075209820176
+    },
+    "TACGGAGGATCCGAGCGTTATCCGGATTTATTGGGTTTAAAGGGAGCGTAGGTGGACTGGTAAGTCAGTTGTGAAAGTTTGCGGCTCAACCGTAAAATTGCAGTTGATACTGTCAGTCTTGAGTA": {
+      "display_name": "Bacteroides",
+      "genus": "Bacteroides",
+      "species": "Unknown",
+      "family": "Bacteroidaceae",
+      "confidence": 0.9983589612025264
+    },
+    "TACGGAAGGTCCGGGCGTTATCCGGATTTATTGGGTTTAAAGGGAGCGTAGGCCGGAGATTAAGCGTGTTGTGAAATGTAGATGCTCAACATCTGAACTGCAGCGCGAACTGGTTTCCTTGAGTA": {
+      "display_name": "Prevotella_9",
+      "genus": "Prevotella_9",
+      "species": "Unknown",
+      "family": "Prevotellaceae",
+      "confidence": 0.9954483260708898
+    },
+    "TACGTAGGGTGCAAGCGTTATCCGGAATTATTGGGCGTAAAGGGCTCGTAGGCGGTTCGTCGCGTCCGGTGTGAAAGTCCATCGCTTAACGGTGGATCCGCGCCGGGTACGGGCGGGCTTGAGTG": {
+      "display_name": "Bifidobacterium",
+      "genus": "Bifidobacterium",
+      "species": "Unknown",
+      "family": "Bifidobacteriaceae",
+      "confidence": 0.9990257981113791
+    },
+    "TACGGAGGATCCGAGCGTTATCCGGATTTATTGGGTTTAAAGGGAGCGTAGGCGGACGCTTAAGTCAGTTGTGAAAGTTTGCGGCTCAACCGTAAAATTGCAGTTGATACTGGGTGTCTTGAGTA": {
+      "display_name": "Bacteroides",
+      "genus": "Bacteroides",
+      "species": "Unknown",
+      "family": "Bacteroidaceae",
+      "confidence": 0.9975967442655702
+    },
+    "TACGTATGGTGCAAGCGTTATCCGGATTTACTGGGTGTAAAGGGAGCGCAGGCGGTGCGGCAAGTCTGATGTGAAAGCCCGGGGCTCAACCCCGGTACTGCATTGGAAACTGTCGTACTAGAGTG": {
+      "display_name": "Agathobacter",
+      "genus": "Agathobacter",
+      "species": "Unknown",
+      "family": "Lachnospiraceae",
+      "confidence": 0.7222663831708541
+    },
+    "TACAGAGGTCTCAAGCGTTGTTCGGAATCACTGGGCGTAAAGCGTGCGTAGGCTGTTTCGTAAGTCGTGTGTGAAAGGCGCGGGCTCAACCCGCGGACGGCACATGATACTGCGAGACTAGAGTA": {
+      "display_name": "Akkermansia",
+      "genus": "Akkermansia",
+      "species": "Unknown",
+      "family": "Akkermansiaceae",
+      "confidence": 0.9999695410081836
+    },
+    "TACGGAGGATCCGAGCGTTATCCGGATTTATTGGGTTTAAAGGGAGCGTAGGCGGATTGTTAAGTCAGTTGTGAAAGTTTGCGGCTCAACCGTAAAATTGCAGTTGATACTGGCAGTCTTGAGTG": {
+      "display_name": "Bacteroides",
+      "genus": "Bacteroides",
+      "species": "Unknown",
+      "family": "Bacteroidaceae",
+      "confidence": 0.9982252141061024
+    },
+    "TACGGAGGATCCGAGCGTTATCCGGATTTATTGGGTTTAAAGGGAGCGTAGATGGATGTTTAAGTCAGTTGTGAAAGTTTGCGGCTCAACCGTAAAATTGCAGTTGATACTGGATATCTTGAGTG": {
+      "display_name": "Bacteroides",
+      "genus": "Bacteroides",
+      "species": "Unknown",
+      "family": "Bacteroidaceae",
+      "confidence": 0.99965213052741
+    }
+  }
+}

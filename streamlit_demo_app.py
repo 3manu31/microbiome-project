@@ -7,6 +7,7 @@ This app supports both uploaded files and distilled demo data with enhanced feat
 - Optimized for Streamlit Cloud deployment
 - Supabase chart caching for performance
 - Button-controlled chart generation for resource optimization
+- Taxonomy integration for microbe identification
 """
 
 import streamlit as st
@@ -18,6 +19,7 @@ import tempfile
 import itertools
 import hashlib
 import io
+import json
 from biom import load_table, Table
 
 # Configure page
@@ -97,6 +99,100 @@ def get_s3_client():
 
 # Initialize S3 client
 s3_client = get_s3_client()
+
+# Taxonomy Integration Functions
+@st.cache_data(show_spinner=False)
+def load_taxonomy_mapping():
+    """Load precomputed taxonomy mapping for demo data."""
+    mapping_file = "taxonomy_mappings/cloud_demo_mapping.json"
+    
+    if os.path.exists(mapping_file):
+        try:
+            with open(mapping_file, 'r') as f:
+                data = json.load(f)
+            return data.get('mapping', {})
+        except Exception as e:
+            st.warning(f"Could not load taxonomy mapping: {e}")
+            return {}
+    else:
+        st.warning("Taxonomy mapping file not found. Microbe names will not be displayed.")
+        return {}
+
+def get_taxonomy_from_supabase(cache_key):
+    """Try to get taxonomy mapping from Supabase cache."""
+    if not s3_client:
+        return None
+        
+    try:
+        bucket_name = "microbiome-charts"
+        taxonomy_key = f"taxonomy/{cache_key}.json"
+        
+        response = s3_client.get_object(Bucket=bucket_name, Key=taxonomy_key)
+        data = json.loads(response['Body'].read().decode('utf-8'))
+        return data.get('mapping', {})
+    except Exception:
+        return None
+
+def save_taxonomy_to_supabase(cache_key, mapping_data):
+    """Save taxonomy mapping to Supabase cache."""
+    if not s3_client:
+        return False
+        
+    try:
+        bucket_name = "microbiome-charts"
+        taxonomy_key = f"taxonomy/{cache_key}.json"
+        
+        data = {
+            'cache_key': cache_key,
+            'mapping': mapping_data
+        }
+        
+        s3_client.put_object(
+            Bucket=bucket_name,
+            Key=taxonomy_key,
+            Body=json.dumps(data),
+            ContentType='application/json'
+        )
+        return True
+    except Exception:
+        return False
+
+@st.cache_data(show_spinner=False)
+def get_cached_taxonomy_mapping():
+    """Get taxonomy mapping with cloud caching."""
+    # First try to load local mapping
+    local_mapping = load_taxonomy_mapping()
+    
+    if local_mapping:
+        # Try to cache it in Supabase for future use
+        cache_key = "demo_taxonomy_mapping_v2"  # Updated cache key
+        save_taxonomy_to_supabase(cache_key, local_mapping)
+        return local_mapping
+    
+    # If no local mapping, try Supabase
+    cache_key = "demo_taxonomy_mapping_v2"  # Updated cache key
+    cloud_mapping = get_taxonomy_from_supabase(cache_key)
+    if cloud_mapping:
+        return cloud_mapping
+    
+    return {}
+
+def get_microbe_display_name(microbe_id, taxonomy_mapping):
+    """Get display name for microbe using taxonomy."""
+    if microbe_id in taxonomy_mapping:
+        return taxonomy_mapping[microbe_id].get('display_name', microbe_id)
+    
+    # Fallback to microbe ID (truncated if it's a sequence)
+    if len(microbe_id) > 20:
+        return f"Microbe_{microbe_id[:8]}..."
+    return microbe_id
+
+# Load taxonomy mapping
+taxonomy_mapping = get_cached_taxonomy_mapping()
+if taxonomy_mapping:
+    st.success(f"✅ Loaded taxonomy data for {len(taxonomy_mapping)} microbes")
+else:
+    st.info("ℹ️ No taxonomy data available - microbe IDs will be displayed as-is")
 
 # File Upload Section (only for local runs)
 if not is_cloud:
@@ -270,7 +366,7 @@ def standardize_group_order(groups):
     return sorted(groups, key=sort_key)
 
 def create_comparison_table(cached_combo_means, selected_groups, top_n):
-    """Create comparison table for multiple groups."""
+    """Create comparison table for multiple groups with taxonomy names."""
     standardized_groups = standardize_group_order(selected_groups)
     
     comparison_data = {}
@@ -282,6 +378,16 @@ def create_comparison_table(cached_combo_means, selected_groups, top_n):
     comparison_df = pd.DataFrame(comparison_data)
     top_microbes = comparison_df.mean(axis=1).sort_values(ascending=False).head(top_n).index
     comparison_df = comparison_df.loc[top_microbes]
+    
+    # Add taxonomy names to index
+    if taxonomy_mapping:
+        display_names = {}
+        for microbe_id in comparison_df.index:
+            display_name = get_microbe_display_name(microbe_id, taxonomy_mapping)
+            display_names[microbe_id] = display_name
+        
+        comparison_df = comparison_df.rename(index=display_names)
+    
     comparison_df.index.name = 'Microbe'
     return comparison_df, top_microbes
 
@@ -352,7 +458,7 @@ def save_chart_to_supabase(cache_key, chart_buffer):
         return False
 
 def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
-    """Render grouped bar chart with caching."""
+    """Render grouped bar chart with caching and taxonomy names."""
     standardized_groups = standardize_group_order(selected_groups)
     
     standardized_df = comparison_df.copy()
@@ -380,15 +486,20 @@ def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
     
     # Chart not in cache - render new one
     cache_status = "newly_rendered"
-    fig, ax = plt.subplots(figsize=(max(8, len(standardized_df.index)*0.5), 6))
+    fig_height = max(6, len(standardized_df.index) * 0.3)
+    fig_width = max(8, len(standardized_df.index) * 0.5)
+    
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
     standardized_df.plot(kind='bar', ax=ax, width=0.8)
     ax.set_ylabel('Mean Abundance')
     ax.set_xlabel('Microbe')
     ax.set_title(f"Comparison Across {group_label}s")
     ax.legend(title=group_label, bbox_to_anchor=(1.05, 1), loc='upper left')
     
+    # Rotate x-axis labels for better readability with taxonomy names
+    plt.xticks(rotation=45, ha='right')
     plt.tight_layout()
-    plt.subplots_adjust(right=0.75)
+    plt.subplots_adjust(right=0.75, bottom=0.2)
     
     buf = io.BytesIO()
     fig.savefig(buf, format='png', bbox_inches='tight', dpi=150)
@@ -461,6 +572,7 @@ if generate_charts:
         st.header("Microbe ID Mapping Table")
         id_mapping_df = pd.DataFrame({
             'Microbe ID': [microbe_numbers.get(microbe, f"M{i+1}") for i, microbe in enumerate(comparison_top_microbes)],
+            'Taxonomy Name': [get_microbe_display_name(microbe, taxonomy_mapping) for microbe in comparison_top_microbes],
             'Sequence': list(comparison_top_microbes)
         })
         st.dataframe(id_mapping_df, use_container_width=True, hide_index=True)

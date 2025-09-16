@@ -1,22 +1,18 @@
 """
-Streamlit Microbiome Top Microbes Dashboard
+Streamlit Microbiome Explorer Dashboard - GMRepo Dataset
 
-This app lets users upload their own microbiome data files and visualizes 
-the top microbes per group interactively. Perfect for local development 
-and testing with your own data files.
+This app analyzes microbiome data from the GMRepo database (PRJEB11419 project)
+and visualizes the top microbes across different health conditions and demographics.
+Features proper taxonomic classification at genus and species levels.
 """
 
 import streamlit as st
 import pandas as pd
-from biom import load_table
-from biom.table import Table
 import matplotlib.pyplot as plt
 import os
-import tempfile
-import itertools
 import io
 import hashlib
-import base64
+import numpy as np
 
 # Local-only deployment check
 def is_running_locally():
@@ -49,168 +45,259 @@ if not is_running_locally():
     st.info("💡 For cloud deployment, please use `streamlit_demo_app.py` instead.")
     st.stop()
 
-st.title("🦠 Microbiome Explorer Dashboard")
+st.title("🦠 Microbiome Explorer Dashboard - GMRepo Dataset")
 
-# --- App Description ---
-st.info("🏠 **Local Development Version** - Upload your own microbiome data files for interactive analysis. Charts are generated on-demand with full functionality.")
-
-# --- File Upload Section ---
-st.sidebar.header("Upload Your Files")
-uploaded_metadata = st.sidebar.file_uploader("Upload metadata file (.txt or .csv)", type=["txt", "csv"])
-uploaded_biom = st.sidebar.file_uploader("Upload biom file (.biom)", type=["biom"])
-
-# --- Instructions ---
-st.sidebar.header("How to Use")
-st.sidebar.success("✅ **Upload Files**: Upload your metadata and BIOM files using the file uploaders above.\n✅ **Interactive Charts**: Charts are generated on-demand as you explore.\n✅ **Full Features**: All functionality available for your data!")
-
-# Copyright and author notice
-st.sidebar.markdown("<hr style='margin-top:2em;margin-bottom:0.5em;'>", unsafe_allow_html=True)
-st.sidebar.markdown("<div style='text-align:center; color:gray; font-size:0.9em;'>© 2025 Emmanuel Gialitakis | Apache 2.0 License</div>", unsafe_allow_html=True)
-
-# --- Load metadata with caching ---
+# GMRepo Data Loading Functions
 @st.cache_data(show_spinner=False)
-def load_metadata(uploaded_metadata):
-    if uploaded_metadata is not None:
-        if hasattr(uploaded_metadata, 'size') and uploaded_metadata.size > 100 * 1024 * 1024:
-            st.error("Uploaded metadata file is too large. Please upload a file smaller than 100MB.")
-            st.stop()
-        return pd.read_csv(
-            uploaded_metadata,
-            sep='\t' if uploaded_metadata.name.endswith('.txt') else ',',
-            low_memory=False,
-            encoding='utf-8'
-        )
+def load_gmrepo_metadata():
+    """Load metadata from GMRepo dataset."""
+    metadata_file = "gmrepo_data_PRJEB11419/all_runs_metadata.tsv"
+    if os.path.exists(metadata_file):
+        df = pd.read_csv(metadata_file, sep='\t', low_memory=False)
+        # Create age categories
+        df['age_cat'] = pd.cut(df['host_age'], 
+                              bins=[0, 18, 35, 50, 65, 100], 
+                              labels=['<18', '18-35', '35-50', '50-65', '65+'],
+                              include_lowest=True)
+        return df
     else:
-        # Load demo metadata file as fallback
-        if not os.path.exists('metadata_demo.txt'):
-            st.error("Please upload a metadata file using the file uploader in the sidebar.")
-            st.stop()
-        return pd.read_csv('metadata_demo.txt', sep='\t', low_memory=False, encoding='utf-8')
-
-# --- Load abundance data from .biom file ---
-def parse_biom(_uploaded_biom):
-    content = _uploaded_biom.read()
-    try:
-        import json
-        table = Table.from_json(json.loads(content.decode('utf-8')))
-    except Exception:
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp.write(content)
-            tmp.flush()
-            table = load_table(tmp.name)
-    return table.to_dataframe(dense=True).T  # Samples as rows
+        st.error(f"GMRepo metadata file not found: {metadata_file}")
+        st.stop()
 
 @st.cache_data(show_spinner=False)
-def load_abundance_df(_uploaded_biom):
-    return parse_biom(_uploaded_biom)
-
-# Load data based on uploaded files or demo files
-try:
-    metadata = load_metadata(uploaded_metadata)
-except Exception as e:
-    st.error(f"Error loading metadata: {e}")
-    st.stop()
-
-try:
-    if uploaded_biom is not None:
-        if hasattr(uploaded_biom, 'size') and uploaded_biom.size > 100 * 1024 * 1024:
-            st.error("Uploaded BIOM file is too large. Please upload a file smaller than 100MB.")
-            st.stop()
-        abundance_df = load_abundance_df(uploaded_biom)
+def load_phenotype_mapping():
+    """Load phenotype mapping from GMRepo dataset."""
+    phenotypes_file = "gmrepo_data_PRJEB11419/prjeb11419_phenotypes.csv"
+    if os.path.exists(phenotypes_file):
+        return pd.read_csv(phenotypes_file)
     else:
-        # Demo mode: load demo_biom.biom file
-        if not os.path.exists('demo_biom.biom'):
-            st.error("Please upload a BIOM file using the file uploader in the sidebar.")
-            st.stop()
-        with open('demo_biom.biom', 'rb') as f:
-            abundance_df = parse_biom(f)
-        # Sample for resource efficiency in demo mode
-        abundance_df = abundance_df.iloc[:100, :100]
-except Exception as e:
-    st.error(f"Error loading BIOM file: {e}")
-    st.stop()
+        st.error(f"Phenotypes file not found: {phenotypes_file}")
+        st.stop()
 
-# Determine if we're using demo data
-is_demo = (uploaded_metadata is None and uploaded_biom is None)
-MAX_FEATURES = 100 if is_demo else None
+@st.cache_data(show_spinner=False)
+def load_phenotype_abundance_data(phenotype_name, taxonomic_level="species"):
+    """Load abundance data for a specific phenotype."""
+    file_name = f"{phenotype_name.replace(' ', '_')}_{taxonomic_level}_abundance.csv"
+    file_path = f"gmrepo_data_PRJEB11419/phenotype_organized_data/{file_name}"
+    
+    if os.path.exists(file_path):
+        df = pd.read_csv(file_path)
+        
+        # Filter out unknown/unidentified microbes to prevent incorrect aggregation
+        # These represent different microbes that shouldn't be grouped together
+        df = df[df['ncbi_taxon_id'] != -1]  # Remove entries with unknown taxon ID
+        df = df[df['scientific_name'] != 'Unknown']  # Remove entries with unknown names
+        
+        return df
+    else:
+        st.warning(f"File not found: {file_path}")
+        return pd.DataFrame()
 
-# Merge abundance and metadata
-if metadata is None or abundance_df is None:
-    st.warning("Please upload both a metadata file and a BIOM file to proceed.")
-    st.stop()
+def get_available_phenotypes():
+    """Get list of available phenotypes based on files in the directory."""
+    data_dir = "gmrepo_data_PRJEB11419/phenotype_organized_data"
+    if not os.path.exists(data_dir):
+        return []
+    
+    files = os.listdir(data_dir)
+    phenotypes = set()
+    
+    for file in files:
+        if file.endswith('_species_abundance.csv'):
+            phenotype = file.replace('_species_abundance.csv', '').replace('_', ' ')
+            phenotypes.add(phenotype)
+    
+    return sorted(list(phenotypes))
 
-try:
-    # Limit features for demo data only  
-    if is_demo and MAX_FEATURES and abundance_df.shape[1] > MAX_FEATURES:
-        abundance_df = abundance_df.iloc[:, :MAX_FEATURES]
-    merged = abundance_df.merge(metadata, left_index=True, right_on='sample_id')
-except Exception as e:
-    st.error(f"Error merging abundance and metadata: {e}. Please check that sample IDs match.")
-    st.stop()
+# Load data
+metadata = load_gmrepo_metadata()
+phenotype_mapping = load_phenotype_mapping()
+available_phenotypes = get_available_phenotypes()
 
-# --- Group options (same as original app) ---
-group_options = [
-    ('age_cat', 'Age Category'),
-    ('mental_illness', 'Mental Illness'),
-    ('sex', 'Sex'),
-    ('sample_type', 'Sample Type'),
-    ('asd', 'Autism Spectrum Disorder (ASD)')
-]
+# Sidebar configuration
+st.sidebar.header("📊 Analysis Configuration")
 
-# --- UI for grouped bar chart (same as original app) ---
-group_col_label = st.selectbox("Select grouping column:", [label for _, label in group_options])
-group_col = next(code for code, label in group_options if label == group_col_label)
-group_label = group_col_label
-group_values = [g for g in merged[group_col].dropna().unique().tolist()]
-default_selected = group_values.copy()
-selected_groups = st.multiselect(
-    f"Show {group_label} options in grouped bar chart:",
-    options=group_values,
-    default=default_selected,
-    help="Toggle which groups to display in the grouped bar chart."
+# Taxonomic level selector
+taxonomic_level = st.sidebar.radio(
+    "🔬 Taxonomic Level",
+    ["Species", "Genus"],
+    help="Species provides more specific microbial classification, while Genus gives broader taxonomic groups."
 )
-top_n = st.slider("Select number of top microbes:", min_value=4, max_value=10, value=10, step=2)
 
-# --- Helper Functions (same as original app) ---
-def standardize_group_order(groups):
-    """Standardize the order of groups to ensure consistent chart rendering."""
-    def sort_key(item):
-        item_str = str(item).lower()
-        if item_str == "not provided":
-            return "zzz_not_provided"
-        if item_str[0].isalpha():
-            return f"a_{item_str}"
-        else:
-            return f"b_{item_str}"
-    return sorted(groups, key=sort_key)
+# Phenotype categories for organization
+phenotype_categories = {
+    "Demographics": ["Health"],
+    "Mental Health": ["Depression", "Schizophrenia", "Bipolar Disorder", "Autism Spectrum Disorder"],
+    "Gastrointestinal": ["Celiac Disease", "Constipation", "Inflammatory Bowel Diseases", 
+                        "Clostridium Infections", "Diarrhea", "Irritable Bowel Syndrome", "Intestinal Diseases"],
+    "Metabolic & Other": ["Diabetes Mellitus", "Autoimmune Diseases", "Cardiovascular Diseases"]
+}
 
-def generate_cache_key(*args):
-    """Generate a consistent, hashable cache key from arguments."""
-    processed_args = []
-    for arg in args:
-        if isinstance(arg, list):
-            processed_args.append(str(sorted(arg) if all(isinstance(x, (str, int, float)) for x in arg) else arg))
-        elif isinstance(arg, dict):
-            processed_args.append(str(sorted(arg.items())))
-        else:
-            processed_args.append(str(arg))
-    
-    key_string = '|'.join(processed_args)
-    cache_key = hashlib.md5(key_string.encode()).hexdigest()
-    return cache_key
+# Category and phenotype selection
+category = st.sidebar.selectbox("📂 Condition Category", list(phenotype_categories.keys()))
+available_in_category = [p for p in phenotype_categories[category] if p in available_phenotypes]
 
-def generate_chart_locally(comparison_df, id_mapping_df, group_label):
-    """Generate chart locally on-demand."""
-    # Create the plot with better aesthetics
-    fig, ax = plt.subplots(figsize=(10, 6))
+if not available_in_category:
+    st.sidebar.error(f"No data available for {category} conditions")
+    st.stop()
+
+# Add "Compare All" button for the category
+compare_all_clicked = st.sidebar.button(f"🚀 Compare All {category} Conditions")
+
+if compare_all_clicked:
+    # Set primary to first available condition and compare_conditions to all others
+    primary_phenotype = available_in_category[0]
+    compare_conditions = available_in_category[1:]
+    st.sidebar.success(f"✅ Comparing all {len(available_in_category)} {category.lower()} conditions!")
     
-    comparison_df.plot(kind='bar', ax=ax, alpha=0.85)
+    # Show optional "Add Healthy Controls" button only when comparing all
+    if "Health" in available_phenotypes and "Health" not in available_in_category:
+        add_healthy = st.sidebar.button("➕ Add Healthy Controls", 
+                                       help="Include healthy control samples for comparison with all disease conditions")
+        if add_healthy:
+            compare_conditions.append("Health")
+            st.sidebar.success("✅ Healthy controls added to comparison!")
     
-    ax.set_title(f'Top {len(comparison_df)} Microbes by {group_label}', fontsize=14, pad=20)
-    ax.set_xlabel('Microbe ID', fontsize=12)
-    ax.set_ylabel('Mean Relative Abundance', fontsize=12)
-    ax.legend(title=f'{group_label}', title_fontsize=11, fontsize=10, bbox_to_anchor=(1.05, 1), loc='upper left')
-    ax.tick_params(axis='x', rotation=45)
+else:
+    primary_phenotype = st.sidebar.selectbox("🎯 Primary Condition", available_in_category)
+    
+    # Option to compare with other conditions
+    compare_conditions = st.sidebar.multiselect(
+        "🔄 Compare with additional conditions",
+        options=[p for p in available_phenotypes if p != primary_phenotype],
+        default=["Health"] if primary_phenotype != "Health" else [],
+        help="Select additional conditions to compare in the analysis"
+    )
+
+# Combine primary and comparison conditions
+selected_conditions = [primary_phenotype] + compare_conditions
+
+# Number of top microbes to show
+
+# Top N and ranking mode selector
+top_n = st.sidebar.slider("🔝 Number of top microbes", min_value=5, max_value=20, value=10, step=1)
+ranking_mode = st.sidebar.radio(
+    "Ranking Mode",
+    ["Top by Abundance", "Top by Abundance Difference (Outliers)"],
+    help="Choose to see the most abundant or the most differentially abundant microbes between groups."
+)
+
+# Analysis type
+analysis_type = st.sidebar.radio(
+    "📈 Analysis Type",
+    ["Condition Comparison", "Demographic Analysis"],
+    help="Choose between comparing conditions or analyzing demographics within a condition"
+)
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("**Data Source:** GMRepo Database (PRJEB11419)")
+st.sidebar.markdown("**Total Samples:** 78,436 runs")
+st.sidebar.markdown("**Healthy Controls:** 16,282 samples")
+
+# Data processing and visualization functions
+def create_abundance_comparison(selected_conditions, taxonomic_level, top_n):
+    """Create comparison of microbe abundances across selected conditions."""
+    all_data = []
+    for condition in selected_conditions:
+        abundance_data = load_phenotype_abundance_data(condition, taxonomic_level.lower())
+        if abundance_data.empty:
+            continue
+        mean_abundance = abundance_data.groupby('scientific_name')['relative_abundance'].mean().reset_index()
+        mean_abundance['condition'] = condition
+        all_data.append(mean_abundance)
+    if not all_data:
+        return pd.DataFrame(), pd.DataFrame()
+    combined_data = pd.concat(all_data, ignore_index=True)
+    comparison_df = combined_data.pivot(index='scientific_name', columns='condition', values='relative_abundance')
+    comparison_df = comparison_df.fillna(0)
+
+    # Ranking logic
+    if ranking_mode == "Top by Abundance" or len(comparison_df.columns) < 2:
+        top_microbes = comparison_df.mean(axis=1).sort_values(ascending=False).head(top_n)
+    else:
+        # Outlier mode: top by max absolute difference between any two groups
+        top_microbes = comparison_df.apply(lambda row: np.max(np.abs(row.values - row.values[:,None])), axis=1)
+        top_microbes = top_microbes.sort_values(ascending=False).head(top_n)
+    comparison_df = comparison_df.loc[top_microbes.index]
+
+    # Create microbe ID mapping table
+    id_mapping_data = []
+    for idx, microbe_name in enumerate(comparison_df.index):
+        microbe_id = f"M{idx+1}"
+        id_mapping_data.append({
+            'Microbe ID': microbe_id,
+            'Scientific Name': microbe_name,
+            'Mean Abundance': comparison_df.loc[microbe_name].mean()
+        })
+    id_mapping_df = pd.DataFrame(id_mapping_data)
+    return comparison_df, id_mapping_df
+
+def create_demographic_analysis(condition, demographic_type, taxonomic_level, top_n):
+    """Analyze microbe abundance by demographics within a specific condition."""
+    # Load abundance data for the condition
+    abundance_data = load_phenotype_abundance_data(condition, taxonomic_level.lower())
+    
+    if abundance_data.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    
+    # Merge with metadata to get demographic information
+    merged_data = abundance_data.merge(metadata, left_on='run_id', right_on='run_id', how='inner')
+    
+    if demographic_type == "Age Groups":
+        demographic_col = 'age_cat'
+    elif demographic_type == "Sex":
+        demographic_col = 'sex'
+    else:
+        return pd.DataFrame(), pd.DataFrame()
+    
+    # Filter out missing demographic data
+    merged_data = merged_data.dropna(subset=[demographic_col])
+    
+    # Calculate mean abundance per microbe per demographic group
+    demo_abundance = merged_data.groupby(['scientific_name', demographic_col], observed=True)['relative_abundance'].mean().reset_index()
+    
+    # Pivot to get microbes as rows, demographic groups as columns
+    comparison_df = demo_abundance.pivot(index='scientific_name', columns=demographic_col, values='relative_abundance')
+    comparison_df = comparison_df.fillna(0)
+    
+    # Get top microbes
+    top_microbes = comparison_df.mean(axis=1).sort_values(ascending=False).head(top_n)
+    comparison_df = comparison_df.loc[top_microbes.index]
+    
+    # Create ID mapping
+    id_mapping_data = []
+    for idx, microbe_name in enumerate(comparison_df.index):
+        microbe_id = f"M{idx+1}"
+        id_mapping_data.append({
+            'Microbe ID': microbe_id,
+            'Scientific Name': microbe_name,
+            'Mean Abundance': top_microbes[microbe_name]
+        })
+    
+    id_mapping_df = pd.DataFrame(id_mapping_data)
+    
+    return comparison_df, id_mapping_df
+
+def generate_chart(comparison_df, chart_title):
+    """Generate chart from comparison data."""
+    if comparison_df.empty:
+        return None
+    
+    # Create the plot
+    fig, ax = plt.subplots(figsize=(12, 8))
+    
+    # Use a color palette
+    colors = None  # Let matplotlib use default colors
+    
+    comparison_df.plot(kind='bar', ax=ax, alpha=0.85, color=colors)
+    
+    ax.set_title(f'{chart_title}', fontsize=16, pad=20)
+    ax.set_xlabel('Microbe (Scientific Name)', fontsize=12)
+    ax.set_ylabel('Mean Relative Abundance (%)', fontsize=12)
+    ax.legend(title='Condition/Group', title_fontsize=11, fontsize=10, bbox_to_anchor=(1.05, 1), loc='upper left')
+    
+    # Rotate x-axis labels for better readability
+    plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
     
     plt.tight_layout()
     
@@ -222,97 +309,164 @@ def generate_chart_locally(comparison_df, id_mapping_df, group_label):
     
     return img_buffer
 
-# --- Create comparison table for microbe ID mapping ---
-def create_comparison_table(merged, group_col, selected_groups, top_n):
-    """Create comparison table and microbe ID mapping."""
-    standardized_groups = standardize_group_order(selected_groups)
+# Main analysis execution
+if analysis_type == "Condition Comparison":
+    st.header(f"🔬 Microbe Abundance Comparison - {taxonomic_level} Level")
     
-    comparison_data = {}
-    for group in standardized_groups:
-        group_df = merged[merged[group_col] == group]
-        mean_abundance = group_df.iloc[:, :-len(metadata.columns)].mean(axis=0)
-        comparison_data[group] = mean_abundance
+    if len(selected_conditions) < 2:
+        st.warning("Please select at least 2 conditions to compare.")
+    else:
+        comparison_df, id_mapping_df = create_abundance_comparison(selected_conditions, taxonomic_level, top_n)
+        
+        if not comparison_df.empty:
+            chart_title = f"Top {top_n} {taxonomic_level} across Selected Conditions"
+            chart_buffer = generate_chart(comparison_df, chart_title)
+            
+            if chart_buffer:
+                st.image(chart_buffer)
+                
+                # Show sample sizes
+                st.subheader("📊 Sample Sizes")
+                sample_info = []
+                for condition in selected_conditions:
+                    phenotype_info = phenotype_mapping[phenotype_mapping['name'] == condition]
+                    if not phenotype_info.empty:
+                        sample_count = phenotype_info.iloc[0]['valid_runs']
+                        sample_info.append({'Condition': condition, 'Sample Count': sample_count})
+                
+                if sample_info:
+                    sample_df = pd.DataFrame(sample_info)
+                    st.dataframe(sample_df, hide_index=True)
 
-    comparison_df = pd.DataFrame(comparison_data)
-    top_microbes = comparison_df.mean(axis=1).sort_values(ascending=False).head(top_n).index
-    comparison_df = comparison_df.loc[top_microbes]
-    
-    # Create microbe ID mapping
-    microbe_numbers = {microbe: f"M{idx+1}" for idx, microbe in enumerate(top_microbes)}
-    comparison_df.index = [microbe_numbers[microbe] for microbe in comparison_df.index]
-    
-    # Create ID mapping table
-    id_mapping_df = pd.DataFrame({
-        'Microbe ID': [microbe_numbers[microbe] for microbe in top_microbes],
-        'Sequence': list(top_microbes)
-    })
-    
-    return comparison_df, id_mapping_df
+                    # Dynamic sample size analysis for all selected conditions
+                    if len(sample_info) >= 2:
+                        st.markdown("**📊 Sample Size Analysis:**")
+                        
+                        # Create a more comprehensive analysis
+                        sample_df_display = sample_df.copy()
+                        sample_df_display = sample_df_display.sort_values('Sample Count', ascending=False)
+                        
+                        # Calculate ratios relative to largest group
+                        max_samples = sample_df_display['Sample Count'].max()
+                        sample_df_display['Ratio'] = sample_df_display['Sample Count'].apply(
+                            lambda x: f"1:{int(max_samples/x)}" if x > 0 else "N/A"
+                        )
+                        
+                        # Display enhanced table
+                        st.dataframe(sample_df_display[['Condition', 'Sample Count', 'Ratio']], hide_index=True)
+                        
+                        # Contextual message based on the comparison
+                        min_samples = sample_df_display['Sample Count'].min()
+                        max_ratio = max_samples / min_samples if min_samples > 0 else float('inf')
+                        
+                        if max_ratio > 50:
+                            st.warning("⚠️ **Large sample size imbalance** (>50:1 ratio). The group with fewer samples may show less reliable patterns. Consider this when interpreting differences.")
+                        elif max_ratio > 10:
+                            st.info("ℹ️ **Moderate sample size difference** (>10:1 ratio). This is common in disease vs. control studies and typically acceptable for analysis.")
+                        else:
+                            st.success("✅ **Well-balanced sample sizes** across all groups. Results should be reliable for all conditions.")
+                        
+                        # Special note for Health comparisons
+                        health_in_comparison = any('health' in condition.lower() for condition in selected_conditions)
+                        if health_in_comparison and len(selected_conditions) > 2:
+                            st.info("💡 **Multi-group comparison tip**: With multiple conditions included, focus on patterns that are consistent across disease groups vs. healthy controls.")
+                        
+                    else:
+                        st.info("Select multiple conditions to see sample size comparison.")
+            
+        else:
+            st.warning("No data available for the selected conditions.")
 
-# --- Main chart display logic ---
-comparison_df, id_mapping_df = create_comparison_table(merged, group_col, selected_groups, top_n)
-
-if group_col == "age_cat" and len(selected_groups) < 3:
-    st.header(f"Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s")
-    st.warning("Please select at least 3 age categories to render the combined chart.")
-elif not comparison_df.empty:
-    # Generate cache key (same logic as original app)
-    standardized_groups = standardize_group_order(selected_groups)
-    standardized_df = comparison_df.copy()
-    if len(standardized_df.columns) > 1:
-        available_cols = [col for col in standardized_groups if col in standardized_df.columns]
-        standardized_df = standardized_df[available_cols]
+else:  # Demographic Analysis
+    st.header(f"👥 Demographic Analysis - {primary_phenotype}")
     
-    cache_key = generate_cache_key(
-        "grouped", 
-        group_label, 
-        standardized_groups, 
-        standardized_df.index.tolist(), 
-        standardized_df.columns.tolist(),
-        standardized_df.shape,
-        str(standardized_df.values.tobytes())[:50]
+    demographic_type = st.selectbox(
+        "Select demographic analysis",
+        ["Age Groups", "Sex"]
     )
     
-    # Generate chart locally on-demand
-    chart_buffer = generate_chart_locally(standardized_df, id_mapping_df, group_label)
+    comparison_df, id_mapping_df = create_demographic_analysis(primary_phenotype, demographic_type, taxonomic_level, top_n)
     
-    # Display the generated chart
-    st.markdown(f"<h1 style='color: green;'>📊 Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s</h1>", unsafe_allow_html=True)
-    st.success("Chart generated locally for interactive exploration!")
-    st.image(chart_buffer)
-else:
-    st.header(f"Enhanced Grouped Bar Chart: Microbe Abundance Across {group_label}s")
-    st.warning("No data available for the selected groups.")
+    if not comparison_df.empty:
+        chart_title = f"Top {top_n} {taxonomic_level} in {primary_phenotype} by {demographic_type}"
+        chart_buffer = generate_chart(comparison_df, chart_title)
+        
+        if chart_buffer:
+            st.image(chart_buffer)
+    else:
+        st.warning(f"No demographic data available for {primary_phenotype}.")
 
-# Microbe ID mapping table (same as original app)
-st.header("🔍 Microbe ID Mapping Table")
-if not id_mapping_df.empty:
-    st.dataframe(id_mapping_df, use_container_width=True, hide_index=True)
-else:
-    st.info("Select valid groups to see microbe ID mapping.")
+# Display data tables
+if 'comparison_df' in locals() and not comparison_df.empty:
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("🔍 Microbe ID Mapping")
+        if 'id_mapping_df' in locals() and not id_mapping_df.empty:
+            st.dataframe(id_mapping_df, hide_index=True)
+    
+    with col2:
+        st.subheader("📊 Abundance Data")
+        # Round values for better display
+        display_df = comparison_df.round(4)
+        st.dataframe(display_df)
 
-# Comparison table (same as original app)
-st.header(f"📊 Comparison Table Across {group_label}s")
-if not comparison_df.empty:
-    st.dataframe(comparison_df)
-else:
-    st.info("Select valid groups to see comparison data.")
-
-# Demo information
+# Information panel
 st.markdown("---")
-st.markdown("### 🎯 About This Demo")
-st.info("""
-**Performance Features:**
-- 🚀 **Instant Loading**: All charts are precomputed and cached in cloud storage
-- ⚡ **Zero Computation**: No on-demand chart rendering, eliminating resource limits
-- 🎨 **Full Visual Fidelity**: Identical design and functionality to the original app
-- 📱 **Responsive Design**: Optimized for both desktop and mobile viewing
+st.markdown("### 🎯 About This Analysis")
 
-**Technical Implementation:**
-- Charts generated offline with corrected pluralization
-- Stored in Supabase S3-compatible storage
-- Retrieved using same cache key logic as original app
-- Fallback messaging for non-precomputed combinations
+# Add explanation of mean abundance
+with st.expander("📚 Understanding Mean Relative Abundance", expanded=False):
+    st.markdown("""
+    **What does "Mean Relative Abundance %" mean?**
+    
+    🧬 **Relative Abundance**: For each sample, we calculate what percentage of the total microbiome each microbe represents.
+    - Example: If a sample has 1000 total microbes and 50 are *Bacteroides vulgatus*, then *Bacteroides vulgatus* = 5% relative abundance
+    
+    📊 **Mean Across Samples**: We then average this percentage across all samples in each condition.
+    - Example: If *Bacteroides vulgatus* is 5% in sample 1, 3% in sample 2, and 7% in sample 3, the mean = 5%
+    
+    🔍 **Important Note About Unknown Microbes**: 
+    - ⚠️ **Original data**: The relative abundance percentages were calculated including unknown/unidentified microbes
+    - 🧹 **Our filtering**: We exclude unknown microbes from analysis, but keep the original abundance percentages
+    - 📈 **Impact**: This means percentages may not add up to 100% in our charts (typically 70-90%)
+    - ✅ **Why this is OK**: We're comparing relative patterns between conditions, not absolute totals
+    
+    ⚖️ **Interpretation**:
+    - **High values (>10%)**: Major components of the identified microbiome
+    - **Medium values (1-10%)**: Important identified microbes  
+    - **Low values (<1%)**: Minor but potentially significant identified microbes
+    
+    💡 **The numbers represent the average percentage of the total microbial community (including unknowns) that each identified microbe occupies in people with each condition.**
+    """)
 
-Upload your own files or change grouping column and top N for different comparisons!
-""")
+info_text = f"""
+**Dataset Information:**
+- 📊 **Source**: GMRepo Database, Project PRJEB11419
+- 🔬 **Taxonomic Level**: {taxonomic_level}
+- 🎯 **Analysis Type**: {analysis_type}
+- 📈 **Top Microbes Shown**: {top_n}
+- 🧹 **Data Filtering**: Unknown/unidentified microbes excluded to prevent aggregation artifacts
+
+**Selected Conditions:**
+{chr(10).join([f"- {condition}" for condition in selected_conditions])}
+
+**Key Features:**
+- ✅ **Proper Taxonomy**: Scientific names with NCBI taxon IDs
+- ✅ **Large Scale**: Thousands of samples per condition
+- ✅ **Comprehensive**: Covers major health conditions and controls
+- ✅ **Interactive**: Real-time analysis based on your selections
+- ✅ **Clean Data**: Filtered out unknown microbes that would skew results
+"""
+
+st.info(info_text)
+
+# Copyright
+st.markdown("---")
+st.markdown(
+    "<div style='text-align:center; color:gray; font-size:0.9em;'>"
+    "© 2025 Emmanuel Gialitakis | Apache 2.0 License | "
+    "Data: GMRepo Database"
+    "</div>", 
+    unsafe_allow_html=True
+)
