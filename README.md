@@ -6,7 +6,7 @@ It is an interactive web application for exploring and visualizing microbiome da
 
 ## 🚀 Live Demo
 
-[**Try the live demo**](https://microbiome-project.streamlit.app/) - Uses sample data from the American Gut Project
+[**Try the live demo**](https://microbiome-project.streamlit.app/) - Uses distilled sample data from the GMRepo dataset (PRJEB11419)
 
 ## ✨ Key Features
 

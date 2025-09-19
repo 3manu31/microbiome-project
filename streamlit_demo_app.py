@@ -76,6 +76,9 @@ def get_s3_client():
     if not S3_AVAILABLE:
         return None
     
+    if not is_cloud:
+        return None
+    
     try:
         supabase_url = st.secrets.get("SUPABASE_URL")
         access_key_id = st.secrets.get("ACCESS_KEY_ID")

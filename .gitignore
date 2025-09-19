@@ -20,8 +20,6 @@ extract_sequences.py
 
 # Legacy/obsolete files (old dataset and apps)
 demo_biom.biom
-demo_biom_distilled.biom
-metadata_demo_distilled.txt
 microbe_sequences_distilled.fasta
 microbe_sequences_full.fasta
 microbe_sequences_full_clean.fasta
