@@ -461,7 +461,9 @@ def save_chart_to_supabase(cache_key, chart_buffer):
         return False
 
 def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
-    """Render grouped bar chart with caching and taxonomy names."""
+    """Render interactive grouped bar chart in the browser using Altair."""
+    import altair as alt
+    
     standardized_groups = standardize_group_order(selected_groups)
     
     standardized_df = comparison_df.copy()
@@ -469,52 +471,27 @@ def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
         available_cols = [col for col in standardized_groups if col in standardized_df.columns]
         standardized_df = standardized_df[available_cols]
     
-    cache_key = generate_cache_key(
-        "grouped", 
-        group_label, 
-        standardized_groups, 
-        standardized_df.index.tolist(), 
-        standardized_df.columns.tolist(),
-        standardized_df.shape,
-        str(standardized_df.values.tobytes())[:50]
+    # Melt the dataframe to long-form format required by Altair
+    melted_df = standardized_df.reset_index().melt(
+        id_vars='Microbe', 
+        var_name=group_label, 
+        value_name='Mean Abundance'
     )
     
-    cache_status = "newly_rendered"
+    # Create the interactive Altair grouped bar chart
+    chart = alt.Chart(melted_df).mark_bar().encode(
+        x=alt.X('Microbe:N', title='Microbe ID', sort=None),
+        y=alt.Y('Mean Abundance:Q', title='Mean Abundance'),
+        color=alt.Color(f'{group_label}:N', title=group_label, scale=alt.Scale(scheme='viridis')),
+        xOffset=f'{group_label}:N',
+        tooltip=['Microbe:N', f'{group_label}:N', alt.Tooltip('Mean Abundance:Q', format='.6f')]
+    ).properties(
+        title=f"Microbe Abundance Comparison Across {group_label}s (Interactive Chart)",
+        height=450
+    ).interactive()
     
-    supabase_chart = get_chart_from_supabase(cache_key)
-    if supabase_chart:
-        cache_status = "supabase_cache"
-        st.image(supabase_chart)
-        return cache_status
-    
-    # Chart not in cache - render new one
-    cache_status = "newly_rendered"
-    fig_height = max(6, len(standardized_df.index) * 0.3)
-    fig_width = max(8, len(standardized_df.index) * 0.5)
-    
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-    standardized_df.plot(kind='bar', ax=ax, width=0.8)
-    ax.set_ylabel('Mean Abundance')
-    ax.set_xlabel('Microbe')
-    ax.set_title(f"Comparison Across {group_label}s")
-    ax.legend(title=group_label, bbox_to_anchor=(1.05, 1), loc='upper left')
-    
-    # Rotate x-axis labels for better readability with taxonomy names
-    plt.xticks(rotation=45, ha='right')
-    plt.tight_layout()
-    plt.subplots_adjust(right=0.75, bottom=0.2)
-    
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', bbox_inches='tight', dpi=150)
-    buf.seek(0)
-    
-    # Save to Supabase cache
-    save_chart_to_supabase(cache_key, buf)
-    
-    st.image(buf)
-    plt.close(fig)
-    
-    return cache_status
+    st.altair_chart(chart, use_container_width=True)
+    return "browser_rendered"
 
 # Only process and display charts when button is clicked (or always for local version)
 if generate_charts:
