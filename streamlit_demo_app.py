@@ -29,16 +29,9 @@ st.set_page_config(
     layout="wide"
 )
 
-# Supabase Storage integration for cloud caching using S3-compatible API
-try:
-    import boto3
-    from botocore.exceptions import ClientError
-    S3_AVAILABLE = True
-except ImportError:
-    S3_AVAILABLE = False
+# S3/Supabase caching is no longer required as charts are rendered on the client side
 
 st.title("🦠 Microbiome Explorer - Enhanced Demo")
-st.info("⚡ **Enhanced Demo** - Supports distilled data | Depression category | Button-controlled charts | Supabase caching")
 
 # Detect Streamlit Cloud environment
 is_cloud = (
@@ -66,42 +59,9 @@ st.sidebar.markdown("© 2025 Emmanuel Gialitakis | Apache 2.0 License")
 # Initialize caching systems
 if 'chart_cache' not in st.session_state:
     st.session_state['chart_cache'] = {}
-if 'cache_stats' not in st.session_state:
-    st.session_state['cache_stats'] = {'hits': 0, 'misses': 0, 'supabase_hits': 0, 'supabase_misses': 0}
+# Caching systems initialized
 
-# Supabase S3-compatible configuration
-@st.cache_resource
-def get_s3_client():
-    """Initialize S3-compatible client for Supabase Storage using access keys."""
-    if not S3_AVAILABLE:
-        return None
-    
-    if not is_cloud:
-        return None
-    
-    try:
-        supabase_url = st.secrets.get("SUPABASE_URL")
-        access_key_id = st.secrets.get("ACCESS_KEY_ID")
-        secret_access_key = st.secrets.get("SECRET_ACCESS_KEY")
-        
-        if supabase_url and access_key_id and secret_access_key:
-            project_ref = supabase_url.split("//")[1].split(".")[0]
-            s3_endpoint = f"https://{project_ref}.supabase.co/storage/v1/s3"
-            
-            return boto3.client(
-                's3',
-                endpoint_url=s3_endpoint,
-                aws_access_key_id=access_key_id,
-                aws_secret_access_key=secret_access_key,
-                region_name='us-east-1'
-            )
-    except Exception as e:
-        st.warning(f"S3 connection failed: {e}")
-    
-    return None
-
-# Initialize S3 client
-s3_client = get_s3_client()
+# Supabase S3 client removed (no longer needed for client-side rendering)
 
 # Taxonomy Integration Functions
 @st.cache_data(show_spinner=False)
@@ -121,64 +81,10 @@ def load_taxonomy_mapping():
         st.warning("Taxonomy mapping file not found. Microbe names will not be displayed.")
         return {}
 
-def get_taxonomy_from_supabase(cache_key):
-    """Try to get taxonomy mapping from Supabase cache."""
-    if not s3_client:
-        return None
-        
-    try:
-        bucket_name = "microbiome-charts"
-        taxonomy_key = f"taxonomy/{cache_key}.json"
-        
-        response = s3_client.get_object(Bucket=bucket_name, Key=taxonomy_key)
-        data = json.loads(response['Body'].read().decode('utf-8'))
-        return data.get('mapping', {})
-    except Exception:
-        return None
-
-def save_taxonomy_to_supabase(cache_key, mapping_data):
-    """Save taxonomy mapping to Supabase cache."""
-    if not s3_client:
-        return False
-        
-    try:
-        bucket_name = "microbiome-charts"
-        taxonomy_key = f"taxonomy/{cache_key}.json"
-        
-        data = {
-            'cache_key': cache_key,
-            'mapping': mapping_data
-        }
-        
-        s3_client.put_object(
-            Bucket=bucket_name,
-            Key=taxonomy_key,
-            Body=json.dumps(data),
-            ContentType='application/json'
-        )
-        return True
-    except Exception:
-        return False
-
 @st.cache_data(show_spinner=False)
 def get_cached_taxonomy_mapping():
-    """Get taxonomy mapping with cloud caching."""
-    # First try to load local mapping
-    local_mapping = load_taxonomy_mapping()
-    
-    if local_mapping:
-        # Try to cache it in Supabase for future use
-        cache_key = "demo_taxonomy_mapping_v2"  # Updated cache key
-        save_taxonomy_to_supabase(cache_key, local_mapping)
-        return local_mapping
-    
-    # If no local mapping, try Supabase
-    cache_key = "demo_taxonomy_mapping_v2"  # Updated cache key
-    cloud_mapping = get_taxonomy_from_supabase(cache_key)
-    if cloud_mapping:
-        return cloud_mapping
-    
-    return {}
+    """Get taxonomy mapping directly from local files."""
+    return load_taxonomy_mapping()
 
 def get_microbe_display_name(microbe_id, taxonomy_mapping):
     """Get display name for microbe using taxonomy."""
@@ -409,56 +315,7 @@ def update_comparison_table_with_codes(comparison_df, microbe_numbers):
                                                                 for i, microbe in enumerate(updated_comparison_df.index)})
     return updated_comparison_df
 
-# Supabase caching functions
-def generate_cache_key(*args):
-    """Generate a consistent, hashable cache key from arguments."""
-    processed_args = []
-    for arg in args:
-        if isinstance(arg, list):
-            processed_args.append(str(sorted(arg) if all(isinstance(x, (str, int, float)) for x in arg) else arg))
-        elif isinstance(arg, dict):
-            processed_args.append(str(sorted(arg.items())))
-        else:
-            processed_args.append(str(arg))
-    
-    key_string = '|'.join(processed_args)
-    cache_key = hashlib.md5(key_string.encode()).hexdigest()
-    return cache_key
-
-def get_chart_from_supabase(cache_key):
-    """Retrieve chart from Supabase storage using S3-compatible API."""
-    if not s3_client:
-        return None
-    
-    try:
-        response = s3_client.get_object(Bucket='chart_cache', Key=f"{cache_key}.png")
-        if response:
-            st.session_state['cache_stats']['supabase_hits'] += 1
-            return io.BytesIO(response['Body'].read())
-    except ClientError:
-        st.session_state['cache_stats']['supabase_misses'] += 1
-    except Exception:
-        st.session_state['cache_stats']['supabase_misses'] += 1
-    
-    return None
-
-def save_chart_to_supabase(cache_key, chart_buffer):
-    """Save chart to Supabase storage using S3-compatible API."""
-    if not s3_client:
-        return False
-    
-    try:
-        chart_buffer.seek(0)
-        s3_client.put_object(
-            Bucket='chart_cache',
-            Key=f"{cache_key}.png",
-            Body=chart_buffer.getvalue(),
-            ContentType='image/png'
-        )
-        return True
-    except Exception as e:
-        st.warning(f"Failed to save chart to Supabase: {e}")
-        return False
+# Caching helpers no longer required
 
 def render_grouped_bar_chart(comparison_df, group_label, selected_groups):
     """Render interactive grouped bar chart in the browser using Altair."""
@@ -521,28 +378,7 @@ if generate_charts:
             st.header(f"Enhanced Grouped Bar Chart: Microbe Abundance Across {group_col_label}s")
             st.warning("Please select at least 3 age categories to render the combined chart.")
         elif not comparison_df.empty:
-            # Pre-check cache status for header color
-            standardized_groups = standardize_group_order(selected_groups)
-            standardized_df = comparison_df.copy()
-            if len(standardized_df.columns) > 1:
-                available_cols = [col for col in standardized_groups if col in standardized_df.columns]
-                standardized_df = standardized_df[available_cols]
-            
-            cache_key = generate_cache_key(
-                "grouped", 
-                group_col_label, 
-                standardized_groups, 
-                standardized_df.index.tolist(), 
-                standardized_df.columns.tolist(),
-                standardized_df.shape,
-                str(standardized_df.values.tobytes())[:50]
-            )
-            
-            if get_chart_from_supabase(cache_key):
-                st.markdown(f"<h1 style='color: black;'>Enhanced Grouped Bar Chart: Microbe Abundance Across {group_col_label}s</h1>", unsafe_allow_html=True)
-            else:
-                st.markdown(f"<h1 style='color: navy;'>Enhanced Grouped Bar Chart: Microbe Abundance Across {group_col_label}s</h1>", unsafe_allow_html=True)
-            
+            st.markdown(f"<h1 style='color: navy;'>Enhanced Grouped Bar Chart: Microbe Abundance Across {group_col_label}s</h1>", unsafe_allow_html=True)
             render_grouped_bar_chart(comparison_df, group_col_label, selected_groups)
         else:
             st.header(f"Enhanced Grouped Bar Chart: Microbe Abundance Across {group_col_label}s")
